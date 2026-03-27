@@ -89,7 +89,7 @@ export function computeCompositeTotal(
 export async function loadFSIScores(): Promise<Map<string, FSIData>> {
   const byName = new Map<string, FSIData>();
   try {
-    const resp = await fetch('/fsi_scores.csv');
+    const resp = await fetch(`${import.meta.env.BASE_URL}fsi_scores.csv`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const text  = await resp.text();
     const lines = text.trim().split('\n');
