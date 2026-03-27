@@ -111,7 +111,6 @@ export const MapPage = () => {
         showStreetEvents={showStreetEvents}
         onStreetEventsToggle={(v) => { setShowStreetEvents(v); if (!v) setSelectedStreetEvent(null); }}
         showStreetScore={showStreetScore}
-        onStreetEventClick={setSelectedStreetEvent}
         onStreetScoreToggle={handleStreetScoreToggle}
         showTestBBox={showTestBBox}
         onTestBBoxToggle={setShowTestBBox}
