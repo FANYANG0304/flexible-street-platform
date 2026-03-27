@@ -1,19 +1,26 @@
 import { useRef, useState, useEffect } from 'react';
 import { X, TrendingUp, ShoppingBag, Users, Leaf, Star, Sparkles, GripHorizontal } from 'lucide-react';
+import { getCloseability, closeabilityLabel, closeabilityColor } from '../lib/fsiScores';
+import type { FSIData, Closeability } from '../lib/fsiScores';
+
+const SV_KEY = import.meta.env.VITE_GOOGLE_SV_KEY;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface StreetScore {
-  featureId:  number;
-  streetName: string;
-  responsibl: string;
-  commercial: number;
-  social:     number;
-  ecological: number;
-  total:      number;
+  featureId:    number;
+  streetName:   string;
+  responsibl:   string;
+  commercial:   number;
+  social:       number;
+  ecological:   number;
+  total:        number;
+  closeability: Closeability;
   // AI sensory fields — present only when the street has been analysed
-  aiScore?:   number;
-  keywords?:  string[];
+  aiScore?:     number;
+  keywords?:    string[];
+  lat?:         number;
+  lng?:         number;
 }
 
 interface StreetScorePanelProps {
@@ -21,9 +28,30 @@ interface StreetScorePanelProps {
   onClose: () => void;
 }
 
-// ── Pseudo-random FSI generator (UNCHANGED) ────────────────────────────────────
+// ── FSI score generator — ML model data when available, pseudo-random fallback ──
 
-export function generateStreetScores(featureId: number, streetName?: string): StreetScore {
+export function generateStreetScores(
+  featureId:  number,
+  streetName?: string,
+  fsiData?:    FSIData,
+  responsibl?: string,
+): StreetScore {
+  const closeability = getCloseability(responsibl ?? '');
+
+  if (fsiData) {
+    return {
+      featureId,
+      streetName:   streetName || '',
+      responsibl:   responsibl || '',
+      commercial:   fsiData.commercial,
+      social:       fsiData.social,
+      ecological:   fsiData.ecological,
+      total:        fsiData.total,
+      closeability,
+    };
+  }
+
+  // Pseudo-random fallback for streets not in ML dataset
   const hash = (seed: number): number => {
     let h = Math.abs(seed) | 0;
     h = ((h >> 16) ^ h) * 0x45d9f3b | 0;
@@ -37,30 +65,29 @@ export function generateStreetScores(featureId: number, streetName?: string): St
   const total      = Math.round((commercial + social + ecological) / 3);
   return {
     featureId,
-    streetName: streetName || '',
-    responsibl: '',
+    streetName:   streetName || '',
+    responsibl:   responsibl || '',
     commercial,
     social,
     ecological,
     total,
+    closeability,
   };
 }
 
 // ── Score utilities (UNCHANGED) ───────────────────────────────────────────────
 
 export function getScoreColor(score: number): string {
-  if (score >= 80) return '#10B981';
-  if (score >= 65) return '#22C55E';
-  if (score >= 50) return '#EAB308';
-  if (score >= 35) return '#F97316';
+  if (score >= 90) return '#10B981';
+  if (score >= 75) return '#EAB308';
+  if (score >= 50) return '#F97316';
   return '#EF4444';
 }
 
 export function getScoreLabel(score: number): string {
-  if (score >= 80) return 'Excellent';
-  if (score >= 65) return 'Good';
-  if (score >= 50) return 'Moderate';
-  if (score >= 35) return 'Fair';
+  if (score >= 90) return 'Excellent';
+  if (score >= 75) return 'Good';
+  if (score >= 50) return 'Fair';
   return 'Low';
 }
 
@@ -82,10 +109,9 @@ function resolveDisplayName(score: StreetScore): string {
 }
 
 function getAIScoreLabel(s: number): string {
-  if (s >= 80) return 'Excellent';
-  if (s >= 65) return 'Good';
-  if (s >= 50) return 'Moderate';
-  if (s >= 35) return 'Fair';
+  if (s >= 90) return 'Excellent';
+  if (s >= 75) return 'Good';
+  if (s >= 50) return 'Fair';
   return 'Low';
 }
 
@@ -136,12 +162,15 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
   if (!score) return null;
 
   const totalColor  = getScoreColor(score.total);
-  const recommended = score.total >= 80;
+  const recommended = score.total >= 90;
   const displayName = resolveDisplayName(score);
 
   const hasAI       = typeof score.aiScore === 'number';
   const hasKeywords = hasAI && Array.isArray(score.keywords) && score.keywords.length > 0;
   const aiColor     = hasAI ? getScoreColor(score.aiScore!) : '#6B7280';
+  const svImageUrl  = hasAI && score.lat && score.lng && SV_KEY
+    ? `https://maps.googleapis.com/maps/api/streetview?size=640x320&location=${score.lat},${score.lng}&fov=90&pitch=0&key=${SV_KEY}`
+    : null;
 
   const posStyle: React.CSSProperties = dragPos
     ? { position: 'absolute', left: dragPos.left, top: dragPos.top }
@@ -181,11 +210,21 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
                   </span>
                 )}
               </div>
-              {score.responsibl && (
-                <p className="text-xs text-gray-500">
-                  Managed by <span className="text-gray-400 font-semibold">{score.responsibl}</span>
-                </p>
-              )}
+              <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                {score.responsibl && (
+                  <p className="text-xs text-gray-500">
+                    Managed by <span className="text-gray-400 font-semibold">{score.responsibl}</span>
+                  </p>
+                )}
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                  style={{
+                    background: `${closeabilityColor(score.closeability)}18`,
+                    color: closeabilityColor(score.closeability),
+                    border: `1px solid ${closeabilityColor(score.closeability)}44`,
+                  }}>
+                  {closeabilityLabel(score.closeability)}
+                </span>
+              </div>
             </div>
 
             <button
@@ -209,8 +248,19 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles className="w-4 h-4" style={{ color: '#818CF8' }} />
                 <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">AI Street Vibe</span>
-                <span className="text-[10px] text-gray-600 ml-auto">Claude Vision analysis</span>
+                <span className="text-[10px] text-gray-600 ml-auto">llava:7b vision analysis</span>
               </div>
+
+              {svImageUrl && (
+                <div className="mb-3 rounded-lg overflow-hidden border border-white/[0.06]">
+                  <img
+                    src={svImageUrl!}
+                    alt={`Street View of ${score.streetName}`}
+                    className="w-full object-cover"
+                    style={{ height: 160 }}
+                  />
+                </div>
+              )}
               <div className="flex items-center gap-4">
                 <div className="flex flex-col items-center flex-shrink-0">
                   <span className="text-3xl font-extrabold" style={{ color: aiColor }}>
@@ -278,7 +328,7 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
               <span className="text-xs font-bold mt-2" style={{ color: totalColor }}>
                 {getScoreLabel(score.total)}
               </span>
-              <span className="text-[10px] text-gray-600 mt-0.5">Flexibility Score</span>
+              <span className="text-[10px] text-gray-600 mt-0.5">Composite FSI</span>
             </div>
 
             {/* Sub-score bars */}

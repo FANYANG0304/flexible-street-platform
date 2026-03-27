@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { ScenarioConfig, TimeBin } from '../types';
 import { Layers, Clock, Radio, ChevronDown, GitBranch, MapPin, Flag, BarChart3, Square } from 'lucide-react';
-import { STREET_COLORS, STREET_FALLBACK, POI_COLORS, PLAYSTREETS_COLOR, SCORE_COLOR_STOPS } from './MapComponent';
+import { STREET_COLORS, STREET_FALLBACK, POI_COLORS, PLAYSTREETS_COLOR, STREET_EVENTS_COLOR, SCORE_COLOR_STOPS } from './MapComponent';
 
 interface SidebarProps {
   scenarios: ScenarioConfig[];
@@ -21,6 +21,8 @@ interface SidebarProps {
   onPOIToggle?: (show: boolean) => void;
   showPlaystreets?: boolean;
   onPlaystreetsToggle?: (show: boolean) => void;
+  showStreetEvents?: boolean;
+  onStreetEventsToggle?: (show: boolean) => void;
   showStreetScore?: boolean;
   onStreetScoreToggle?: (show: boolean) => void;
   showTestBBox?: boolean;
@@ -40,6 +42,7 @@ export const Sidebar = ({
   showStreetCenterline = false, onStreetCenterlineToggle,
   showPOI = false, onPOIToggle,
   showPlaystreets = false, onPlaystreetsToggle,
+  showStreetEvents = false, onStreetEventsToggle,
   showStreetScore = false, onStreetScoreToggle,
   showTestBBox = false, onTestBBoxToggle,
   width, onWidthChange, anchorCount = 0,
@@ -256,6 +259,24 @@ export const Sidebar = ({
                       <div className="flex items-center gap-2 text-xs text-gray-500">
                         <span className="w-4 h-[3px] rounded-full" style={{ background: PLAYSTREETS_COLOR }} />
                         <span>Summer play streets (matched to road segments)</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Open Streets (Center City) */}
+                  <label className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/[0.05] cursor-pointer transition-all duration-150 group">
+                    <input type="checkbox" checked={showStreetEvents} onChange={(e) => onStreetEventsToggle?.(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-600 bg-gray-800 focus:ring-offset-0" style={{ accentColor: STREET_EVENTS_COLOR }} />
+                    <div className="flex items-center gap-2 flex-1">
+                      <Flag className="w-3.5 h-3.5" style={{ color: STREET_EVENTS_COLOR }} />
+                      <span className="text-sm font-medium text-gray-300 group-hover:text-gray-100 transition-colors">Open Streets</span>
+                    </div>
+                  </label>
+                  {showStreetEvents && (
+                    <div className="ml-11 mb-1 animate-fadeIn">
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="w-4 h-[3px] rounded-full" style={{ background: STREET_EVENTS_COLOR }} />
+                        <span>Center City commercial activations (2026)</span>
                       </div>
                     </div>
                   )}

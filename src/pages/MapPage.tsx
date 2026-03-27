@@ -8,9 +8,13 @@ import { MapLegend } from '../components/MapLegend';
 import { AnchorDetailPanel } from '../components/AnchorDetailPanel';
 import { StreetScorePanel } from '../components/StreetScorePanel';
 import type { StreetScore } from '../components/StreetScorePanel';
+import { StreetEventPanel } from '../components/StreetEventPanel';
+import type { StreetEventInfo } from '../components/StreetEventPanel';
 import { scenarioConfigs, timeBins } from '../data/mockData';
 import { loadStreetAICache } from '../lib/streetScores';
 import type { StreetAIData } from '../lib/streetScores';
+import { loadFSIScores } from '../lib/fsiScores';
+import type { FSIData } from '../lib/fsiScores';
 import type { Anchor, ScenarioConfig, ScenarioId } from '../types';
 
 function getCurrentTimeBin(): string {
@@ -37,15 +41,19 @@ export const MapPage = () => {
   const [showStreetCenterline, setShowStreetCenterline] = useState(true);
   const [showPOI, setShowPOI]                       = useState(false);
   const [showPlaystreets, setShowPlaystreets]       = useState(false);
+  const [showStreetEvents, setShowStreetEvents]       = useState(false);
+  const [selectedStreetEvent, setSelectedStreetEvent] = useState<StreetEventInfo | null>(null);
   const [showStreetScore, setShowStreetScore]       = useState(false);
   const [showTestBBox, setShowTestBBox]             = useState(false);
   const [anchorCount]                               = useState(0);
 
-  // ── AI sensory cache ─────────────────────────────────────────────────────────
-  const [aiCache, setAICache] = useState<Map<number, StreetAIData>>(new Map());
+  // ── AI sensory cache + ML FSI scores ─────────────────────────────────────────
+  const [aiCache,   setAICache]   = useState<Map<number, StreetAIData>>(new Map());
+  const [fsiScores, setFSIScores] = useState<Map<string, FSIData>>(new Map());
 
   useEffect(() => {
     loadStreetAICache().then(setAICache);
+    loadFSIScores().then(setFSIScores);
   }, []);
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -100,7 +108,10 @@ export const MapPage = () => {
         onPOIToggle={setShowPOI}
         showPlaystreets={showPlaystreets}
         onPlaystreetsToggle={setShowPlaystreets}
+        showStreetEvents={showStreetEvents}
+        onStreetEventsToggle={(v) => { setShowStreetEvents(v); if (!v) setSelectedStreetEvent(null); }}
         showStreetScore={showStreetScore}
+        onStreetEventClick={setSelectedStreetEvent}
         onStreetScoreToggle={handleStreetScoreToggle}
         showTestBBox={showTestBBox}
         onTestBBoxToggle={setShowTestBBox}
@@ -147,10 +158,13 @@ export const MapPage = () => {
           showStreetCenterline={showStreetCenterline}
           showPOI={showPOI}
           showPlaystreets={showPlaystreets}
+          showStreetEvents={showStreetEvents}
+          onStreetEventClick={setSelectedStreetEvent}
           showStreetScore={showStreetScore}
           onStreetScoreClick={handleStreetScoreClick}
           showTestBBox={showTestBBox}
           streetAICache={aiCache}
+          fsiScores={fsiScores}
         />
         <MapLegend
           showStreetScore={showStreetScore}
@@ -163,6 +177,7 @@ export const MapPage = () => {
           anchorPanelOpen={selectedAnchor !== null}
         />
         <StreetScorePanel score={selectedStreetScore} onClose={() => setSelectedStreetScore(null)} />
+        <StreetEventPanel event={selectedStreetEvent} onClose={() => setSelectedStreetEvent(null)} />
       </div>
 
       <AnchorDetailPanel anchor={selectedAnchor} onClose={() => setSelectedAnchor(null)} />

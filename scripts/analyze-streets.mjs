@@ -11,18 +11,16 @@ config();
 const GOOGLE_SV_KEY = 'AIzaSyCYQ_bbFljqQr_g7NgDsPxq3G6Akh1aK6E';
 const MODEL         = 'llava:7b';
 const SV_SIZE       = '640x320';
-const CONCURRENCY   = 2;
+const CONCURRENCY   = 4;
 const BATCH_DELAY   = 300;
 const MAX_RETRIES   = 3;
 
-// ── Test area bounding box (South Philly — bottom-right of the map) ────────────
-// Change these coords to adjust the test area, or pass --bbox "minLng,minLat,maxLng,maxLat"
-const DEFAULT_BBOX = {
-  minLng: -75.185,
-  minLat:  39.910,
-  maxLng: -75.140,
-  maxLat:  39.950,
-};
+// ── Study zones: West Philadelphia (community) + Center City (commercial) ─────
+// Pass --bbox to override, or --full to process all streets
+const DEFAULT_BBOXES = [
+  { minLng: -75.248, minLat: 39.948, maxLng: -75.198, maxLat: 39.976 }, // West Philadelphia
+  { minLng: -75.178, minLat: 39.939, maxLng: -75.142, maxLat: 39.963 }, // Center City / Downtown
+];
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
@@ -206,14 +204,14 @@ async function main() {
   const fullIdx     = args.indexOf('--full');
   const limit       = limitIdx >= 0 ? parseInt(args[limitIdx + 1]) : Infinity;
 
-  // Parse bbox: --bbox "minLng,minLat,maxLng,maxLat"  or use default test area
-  let bbox = null;
-  if (fullIdx < 0) {  // --full skips bbox filtering
+  // Parse bbox(es): --bbox overrides with a single box; default = two study zones; --full = no filter
+  let bboxes = null; // null means no filter (full city)
+  if (fullIdx < 0) {
     if (bboxIdx >= 0) {
       const [minLng, minLat, maxLng, maxLat] = args[bboxIdx + 1].split(',').map(Number);
-      bbox = { minLng, minLat, maxLng, maxLat };
+      bboxes = [{ minLng, minLat, maxLng, maxLat }];
     } else {
-      bbox = DEFAULT_BBOX;
+      bboxes = DEFAULT_BBOXES;
     }
   }
 
@@ -236,8 +234,10 @@ async function main() {
   console.log(`📂  ${geojsonPath}`);
   const allFeatures = JSON.parse(fs.readFileSync(geojsonPath, 'utf-8')).features;
   console.log(`📍  Total features in file: ${allFeatures.length}`);
-  if (bbox) {
-    console.log(`📦  Test bbox: lng[${bbox.minLng}, ${bbox.maxLng}] lat[${bbox.minLat}, ${bbox.maxLat}]`);
+  if (bboxes) {
+    bboxes.forEach((b, i) =>
+      console.log(`📦  Zone ${i + 1}: lng[${b.minLng}, ${b.maxLng}] lat[${b.minLat}, ${b.maxLat}]`)
+    );
     console.log(`    (use --full to process all streets, --bbox to set custom area)`);
   } else {
     console.log(`🌍  Full city mode (--full)`);
@@ -255,17 +255,17 @@ async function main() {
     const fid   = props.objectid ?? props.seg_id ?? i;
     if (done.has(fid)) continue;
 
-    // Bbox filter
-    if (bbox) {
+    // Bbox filter — point must fall inside at least one study zone
+    if (bboxes) {
       const pt = midpoint(feat.geometry);
-      if (!pt || !inBbox(pt, bbox)) continue;
+      if (!pt || !bboxes.some(b => inBbox(pt, b))) continue;
     }
 
     todo.push({ feat, globalIndex: i });
     if (todo.length >= limit) break;
   }
 
-  console.log(`🚀  To process: ${todo.length} streets${bbox ? ' (in test area)' : ''}\n`);
+  console.log(`🚀  To process: ${todo.length} streets${bboxes ? ' (in study zones)' : ''}\n`);
   if (todo.length === 0) { console.log('Nothing to do.'); return; }
 
   const counters  = { processed: 0, skipped: 0, noImagery: 0, errors: 0 };
