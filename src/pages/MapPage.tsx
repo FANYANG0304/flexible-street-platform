@@ -13,8 +13,10 @@ import type { StreetEventInfo } from '../components/StreetEventPanel';
 import { scenarioConfigs, timeBins } from '../data/mockData';
 import { loadStreetAICache } from '../lib/streetScores';
 import type { StreetAIData } from '../lib/streetScores';
-import { loadFSIScores } from '../lib/fsiScores';
-import type { FSIData } from '../lib/fsiScores';
+import { fetchWeather } from '../lib/weather';
+import type { WeatherData } from '../lib/weather';
+import type { POIRecord } from '../lib/fsiScores';
+import { supabase } from '../lib/supabase';
 import type { Anchor, ScenarioConfig, ScenarioId } from '../types';
 
 function getCurrentTimeBin(): string {
@@ -35,8 +37,18 @@ export const MapPage = () => {
   const [selectedTimeBin, setSelectedTimeBin]       = useState(getCurrentTimeBin);
   const [selectedAnchor, setSelectedAnchor]         = useState<Anchor | null>(null);
   const [selectedStreetScore, setSelectedStreetScore] = useState<StreetScore | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed]     = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [sidebarCollapsed, setSidebarCollapsed]     = useState(() => window.innerWidth < 768);
   const [sidebarWidth, setSidebarWidth]             = useState(320);
+
+  useEffect(() => {
+    const handler = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+    };
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
   const [showTraffic, setShowTraffic]               = useState(false);
   const [showStreetCenterline, setShowStreetCenterline] = useState(true);
   const [showPOI, setShowPOI]                       = useState(false);
@@ -47,13 +59,30 @@ export const MapPage = () => {
   const [showTestBBox, setShowTestBBox]             = useState(false);
   const [anchorCount]                               = useState(0);
 
-  // ── AI sensory cache + ML FSI scores ─────────────────────────────────────────
-  const [aiCache,   setAICache]   = useState<Map<number, StreetAIData>>(new Map());
-  const [fsiScores, setFSIScores] = useState<Map<string, FSIData>>(new Map());
+  // ── AI sensory cache + POI density (for FSI) + weather ──────────────────────
+  const [aiCache,     setAICache]     = useState<Map<number, StreetAIData>>(new Map());
+  const [allPOIs,     setAllPOIs]     = useState<POIRecord[]>([]);
+  const [weatherData, setWeatherData] = useState<WeatherData | undefined>(undefined);
 
   useEffect(() => {
     loadStreetAICache().then(setAICache);
-    loadFSIScores().then(setFSIScores);
+    // Load all POIs once for POI-density FSI scoring (playstreets/openstreets excluded)
+    supabase.rpc('get_poi_in_bounds', {
+      min_lng: -75.30, min_lat: 39.86, max_lng: -74.95, max_lat: 40.14,
+    }).then(({ data, error }) => {
+      if (error) { console.warn('allPOIs fetch:', error.message); return; }
+      const pois: POIRecord[] = (data?.features ?? []).map((f: any) => ({
+        lat:      f.geometry.coordinates[1],
+        lng:      f.geometry.coordinates[0],
+        category: f.properties?.poi_category ?? '',
+      }));
+      setAllPOIs(pois);
+      console.log(`✅ Loaded ${pois.length} POIs for FSI density scoring`);
+    });
+    fetchWeather().then(setWeatherData);
+    // Refresh weather every 30 minutes
+    const interval = setInterval(() => fetchWeather().then(setWeatherData), 30 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
   // ────────────────────────────────────────────────────────────────────────────
 
@@ -86,7 +115,8 @@ export const MapPage = () => {
     if (!show) setSelectedStreetScore(null);
   }, []);
 
-  const effectiveLeft = sidebarCollapsed ? 0 : sidebarWidth;
+  // On mobile, sidebar overlays the map (doesn't push it)
+  const effectiveLeft = (!sidebarCollapsed && !isMobile) ? sidebarWidth : 0;
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-[#0f1017]">
@@ -119,13 +149,21 @@ export const MapPage = () => {
         anchorCount={anchorCount}
       />
 
+      {/* Mobile backdrop — tap to close sidebar */}
+      {isMobile && !sidebarCollapsed && (
+        <div
+          className="absolute inset-0 z-20 bg-black/60 backdrop-blur-sm"
+          onClick={() => setSidebarCollapsed(true)}
+        />
+      )}
+
       {/* Sidebar toggle */}
       <button
         onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
         className="absolute z-50 bg-[#1e1f2b] p-3 rounded-lg shadow-lg hover:shadow-xl transition-all hover:bg-[#282938] border border-white/[0.06]"
         style={{
           top: '16px',
-          left: sidebarCollapsed ? '16px' : `${sidebarWidth + 16}px`,
+          left: sidebarCollapsed ? '16px' : isMobile ? `${Math.min(sidebarWidth, window.innerWidth * 0.85) + 4}px` : `${sidebarWidth + 16}px`,
           transition: 'left 0.3s ease-in-out',
         }}
         title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -163,7 +201,8 @@ export const MapPage = () => {
           onStreetScoreClick={handleStreetScoreClick}
           showTestBBox={showTestBBox}
           streetAICache={aiCache}
-          fsiScores={fsiScores}
+          allPOIs={allPOIs}
+          weatherData={weatherData}
         />
         <MapLegend
           showStreetScore={showStreetScore}
@@ -183,38 +222,28 @@ export const MapPage = () => {
 
       {/* Top bar */}
       <div
-        className="absolute top-0 transition-all duration-300 z-40 py-4 bg-[#0f1017]/90 backdrop-blur-md border-b border-white/[0.04]"
+        className="absolute top-0 transition-all duration-300 z-40 py-3 sm:py-4 bg-[#0f1017]/90 backdrop-blur-md border-b border-white/[0.04]"
         style={{
           left: effectiveLeft, right: 0,
-          paddingLeft:  sidebarCollapsed ? '70px' : '80px',
-          paddingRight: '24px',
+          paddingLeft:  sidebarCollapsed ? '58px' : isMobile ? '58px' : '80px',
+          paddingRight: '12px',
         }}
       >
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-extrabold text-gray-100 tracking-wide">Flexible Street Platform</h2>
-            <p className="text-xs text-gray-500">
-              Time: <span className="font-semibold text-gray-400">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm sm:text-lg font-extrabold text-gray-100 tracking-wide truncate">Flexible Street Platform</h2>
+            <p className="text-[10px] sm:text-xs text-gray-500 truncate">
+              <span className="font-semibold text-gray-400">
                 {timeBins.find(t => t.id === selectedTimeBin)?.label}
               </span>
-              {' · '}Scenarios: <span className="font-semibold text-gray-400">{activeScenarios.size}</span>
-              {showStreetScore && (
-                <>
-                  {' · '}<span className="text-emerald-400 font-semibold">📊 Scores</span>
-                  {aiCache.size > 0 && (
-                    <span className="text-gray-600 ml-1">({aiCache.size} AI vibes)</span>
-                  )}
-                </>
-              )}
-              {showTraffic          && <>{' · '}<span className="text-green-400 font-semibold">🚦 Traffic</span></>}
-              {showStreetCenterline && <>{' · '}<span className="text-indigo-400 font-semibold">🛣️ Centerline</span></>}
-              {showPOI              && <>{' · '}<span className="text-sky-400 font-semibold">📍 POI</span></>}
-              {showPlaystreets      && <>{' · '}<span className="text-cyan-400 font-semibold">🛝 Playstreets</span></>}
+              {' · '}<span className="font-semibold text-gray-400">{activeScenarios.size} scenarios</span>
+              {showStreetScore && <>{' · '}<span className="text-emerald-400 font-semibold">Scores</span></>}
+              {showTraffic     && <>{' · '}<span className="text-green-400 font-semibold">Traffic</span></>}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
             <div
-              className="px-3 py-1 rounded-full text-xs font-semibold"
+              className="hidden sm:block px-3 py-1 rounded-full text-xs font-semibold"
               style={{ background: 'rgba(99,102,241,0.12)', color: '#A5B4FC', border: '1px solid rgba(99,102,241,0.2)' }}
             >
               Philadelphia Pilot

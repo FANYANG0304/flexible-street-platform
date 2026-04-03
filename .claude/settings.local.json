@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "WebSearch"
+      "WebSearch",
+      "Bash(node -e ':*)",
+      "Bash(node scripts/seed-open-streets.mjs)"
     ]
   }
 }

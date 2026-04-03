@@ -7,8 +7,8 @@ import { supabase } from '../lib/supabase';
 import { generateStreetScores, getScoreColor } from './StreetScorePanel';
 import type { StreetScore } from './StreetScorePanel';
 import type { StreetAIData } from '../lib/streetScores';
-import type { FSIData } from '../lib/fsiScores';
-import { computeCompositeTotal } from '../lib/fsiScores';
+import { computeCompositeTotal, getTrafficModifier, trafficLabel, computePoiFSI } from '../lib/fsiScores';
+import type { POIRecord } from '../lib/fsiScores';
 import type { StreetEventInfo } from './StreetEventPanel';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -29,7 +29,8 @@ interface MapComponentProps {
   onStreetScoreClick?: (score: StreetScore) => void;
   showTestBBox?: boolean;
   streetAICache?: Map<number, StreetAIData>;
-  fsiScores?: Map<string, FSIData>;
+  allPOIs?: POIRecord[];
+  weatherData?: import('../lib/weather').WeatherData;
 }
 
 /* ── Palettes ── */
@@ -118,13 +119,14 @@ const SCORE_TOTAL: any = ['round', ['/', ['+', SCORE_COMMERCIAL, SCORE_SOCIAL, S
    MapComponent
    ═══════════════════════════════════════ */
 export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
-  activeScenarios, selectedTimeBin: _t, onAnchorClick,
+  activeScenarios, selectedTimeBin = 'morning', onAnchorClick,
   showTraffic = false, showStreetCenterline = false, showPOI = false, showPlaystreets = false,
   showStreetEvents = false, onStreetEventClick,
   showStreetScore = false, onStreetScoreClick,
   showTestBBox = false,
   streetAICache,
-  fsiScores,
+  allPOIs,
+  weatherData,
 }, ref) => {
   const ctr = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
@@ -133,9 +135,13 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
   const loadingAnchors = useRef(false);
   const loadingPOI = useRef(false);
   const loadingPlaystreets = useRef(false);
-  const aiCacheRef     = useRef<Map<number, StreetAIData>>(new Map());
-  const aiNameIndexRef = useRef<Map<string, StreetAIData>>(new Map());
-  const fsiCacheRef    = useRef<Map<string, FSIData>>(new Map());
+  const aiCacheRef       = useRef<Map<number, StreetAIData>>(new Map());
+  const aiNameIndexRef   = useRef<Map<string, StreetAIData>>(new Map());
+  const allPOIsRef       = useRef<POIRecord[]>([]);
+  const selectedTimeBinRef = useRef(selectedTimeBin);
+  const weatherDataRef     = useRef(weatherData);
+  useEffect(() => { selectedTimeBinRef.current = selectedTimeBin; }, [selectedTimeBin]);
+  useEffect(() => { weatherDataRef.current = weatherData; }, [weatherData]);
 
   useEffect(() => {
     const cache = streetAICache ?? new Map();
@@ -145,7 +151,7 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
     aiNameIndexRef.current = nameIdx;
   }, [streetAICache]);
 
-  useEffect(() => { fsiCacheRef.current = fsiScores ?? new Map(); }, [fsiScores]);
+  useEffect(() => { allPOIsRef.current = allPOIs ?? []; }, [allPOIs]);
 
   /* ── Inject AI scores into Mapbox feature state ── */
   useEffect(() => {
@@ -226,7 +232,7 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
     loadingStreetEvents.current = true;
     try {
       const { data, error } = await supabase.rpc('get_street_events_in_bounds', {
-        min_lng: -75.20, min_lat: 39.93, max_lng: -75.12, max_lat: 39.97,
+        min_lng: -75.26, min_lat: 39.91, max_lng: -75.03, max_lat: 40.05,
       });
       if (error) { console.error('Street events fetch error:', error); return; }
       const src = map.current?.getSource('street-events-data') as mapboxgl.GeoJSONSource;
@@ -598,17 +604,20 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
       const props = feat.properties || {};
       const fid      = typeof feat.id === 'number' ? feat.id : 0;
       const objectId = props.objectid != null ? Number(props.objectid) : fid;
-      const stkey    = (props.stname ?? '').toUpperCase().trim();
-      const fsiData  = fsiCacheRef.current.get(stkey);
 
+      const fsiData  = computePoiFSI(e.lngLat.lat, e.lngLat.lng, allPOIsRef.current) ?? undefined;
       const scores = generateStreetScores(objectId, props.stname, fsiData, props.responsibl);
 
       // 叠加 AI 感官数据（如果有）— name > objectid
       const ai = aiNameIndexRef.current.get((props.stname ?? '').toUpperCase().trim())
               ?? aiCacheRef.current.get(objectId);
 
+      // 交通 + 天气修正
+      const tMod = getTrafficModifier(props.stname, props.responsibl, selectedTimeBinRef.current);
+      const wMod = weatherDataRef.current?.modifier ?? 1.0;
+
       // 综合 FSI
-      scores.total = computeCompositeTotal(scores.total, ai?.aiScore, scores.closeability);
+      scores.total = computeCompositeTotal(scores.total, ai?.aiScore, scores.closeability, tMod, wMod);
       const color  = getScoreColor(scores.total);
 
       const dispName = ai?.streetName || props.stname || `Street #${objectId}`;
@@ -649,24 +658,32 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
       const props = feat.properties || {};
       const fid      = typeof feat.id === 'number' ? feat.id : 0;
       const objectId = props.objectid != null ? Number(props.objectid) : fid;
-      const stkey    = (props.stname ?? '').toUpperCase().trim();
-      const fsiData  = fsiCacheRef.current.get(stkey);
 
+      const fsiData  = computePoiFSI(e.lngLat.lat, e.lngLat.lng, allPOIsRef.current) ?? undefined;
       const scores = generateStreetScores(objectId, props.stname, fsiData, props.responsibl);
 
       // 叠加 AI 感官数据（如果有）— name > objectid
       const ai = aiNameIndexRef.current.get((props.stname ?? '').toUpperCase().trim())
               ?? aiCacheRef.current.get(objectId);
       if (ai) {
-        scores.streetName = ai.streetName || scores.streetName; // 修复 Unnamed Street
+        scores.streetName = ai.streetName || scores.streetName;
         scores.aiScore    = ai.aiScore;
         scores.keywords   = ai.keywords;
         scores.lat        = ai.lat;
         scores.lng        = ai.lng;
       }
 
-      // 综合 FSI = ML分 × 60% + AI感官 × 40%（无AI则纯ML），不可关闭→0，需审批→×0.75
-      scores.total = computeCompositeTotal(scores.total, scores.aiScore, scores.closeability);
+      // 交通 + 天气修正
+      const tMod = getTrafficModifier(props.stname, props.responsibl, selectedTimeBinRef.current);
+      const wMod = weatherDataRef.current?.modifier ?? 1.0;
+      scores.trafficMod   = tMod;
+      scores.trafficLabel = trafficLabel(tMod);
+      scores.weatherMod   = wMod;
+      scores.weatherLabel = weatherData?.label;
+      scores.weatherIcon  = weatherData?.icon;
+
+      // 综合 FSI
+      scores.total = computeCompositeTotal(scores.total, scores.aiScore, scores.closeability, tMod, wMod);
 
       if (map.current?.getLayer('street-score-highlight')) {
         map.current.setFilter('street-score-highlight', ['==', ['id'], fid]);

@@ -28,7 +28,7 @@ export const AnchorDetailPanel = ({ anchor, onClose }: AnchorDetailPanelProps) =
   const rotateRight = () => { setLoading(true); setHeadingIndex(p => (p + 1) % 4); };
 
   return (
-    <div className="absolute top-0 right-0 h-full w-96 bg-[#13141c] shadow-2xl z-50 overflow-hidden border-l border-white/[0.06]">
+    <div className="absolute top-0 right-0 h-full w-full sm:w-96 bg-[#13141c] shadow-2xl z-50 overflow-hidden border-l border-white/[0.06]">
       <div className="flex flex-col h-full">
 
         <div className="p-6 border-b border-white/[0.06]">

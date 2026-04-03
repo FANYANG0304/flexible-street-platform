@@ -21,6 +21,12 @@ export interface StreetScore {
   keywords?:    string[];
   lat?:         number;
   lng?:         number;
+  // Live conditions
+  trafficLabel?:   string;
+  trafficMod?:     number;
+  weatherLabel?:   string;
+  weatherIcon?:    string;
+  weatherMod?:     number;
 }
 
 interface StreetScorePanelProps {
@@ -172,23 +178,27 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
     ? `https://maps.googleapis.com/maps/api/streetview?size=640x320&location=${score.lat},${score.lng}&fov=90&pitch=0&key=${SV_KEY}`
     : null;
 
+  const isMobileScreen = typeof window !== 'undefined' && window.innerWidth < 640;
+
   const posStyle: React.CSSProperties = dragPos
     ? { position: 'absolute', left: dragPos.left, top: dragPos.top }
-    : { position: 'absolute', bottom: 24, left: 16 };
+    : isMobileScreen
+      ? { position: 'absolute', bottom: 0, left: 0, right: 0 }
+      : { position: 'absolute', bottom: 24, left: 16 };
 
   return (
     <div
       ref={panelRef}
-      className="z-50 w-[520px] max-w-[calc(100vw-48px)] animate-fadeIn"
+      className={`z-50 animate-fadeIn ${isMobileScreen ? 'w-full' : 'w-[520px] max-w-[calc(100vw-48px)]'}`}
       style={posStyle}
     >
-      <div className="bg-[#16171e]/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/[0.08] overflow-hidden">
+      <div className={`bg-[#16171e]/95 backdrop-blur-xl shadow-2xl border border-white/[0.08] overflow-hidden ${isMobileScreen ? 'rounded-t-2xl rounded-b-none' : 'rounded-2xl'}`}>
 
-        {/* ── Header (drag handle) ── */}
+        {/* ── Header (drag handle — desktop only) ── */}
         <div
-          className="px-6 pt-4 pb-4 border-b border-white/[0.06] select-none"
-          style={{ cursor: dragging ? 'grabbing' : 'grab' }}
-          onMouseDown={onDragMouseDown}
+          className="px-4 sm:px-6 pt-4 pb-4 border-b border-white/[0.06] select-none"
+          style={{ cursor: isMobileScreen ? 'default' : dragging ? 'grabbing' : 'grab' }}
+          onMouseDown={isMobileScreen ? undefined : onDragMouseDown}
         >
           {/* Grip indicator */}
           <div className="flex justify-center mb-2 opacity-30">
@@ -225,6 +235,38 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
                   {closeabilityLabel(score.closeability)}
                 </span>
               </div>
+
+              {/* Live conditions row */}
+              {(score.trafficLabel || score.weatherLabel) && (
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  {score.trafficLabel && (
+                    <span className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full"
+                      style={{
+                        background: score.trafficMod != null && score.trafficMod <= 0.4
+                          ? 'rgba(239,68,68,0.12)' : score.trafficMod != null && score.trafficMod <= 0.65
+                          ? 'rgba(249,115,22,0.12)' : 'rgba(71,85,105,0.25)',
+                        color: score.trafficMod != null && score.trafficMod <= 0.4
+                          ? '#fca5a5' : score.trafficMod != null && score.trafficMod <= 0.65
+                          ? '#fdba74' : '#94a3b8',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                      }}>
+                      🚗 {score.trafficLabel} traffic
+                    </span>
+                  )}
+                  {score.weatherLabel && score.weatherLabel !== 'N/A' && (
+                    <span className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full"
+                      style={{
+                        background: score.weatherMod != null && score.weatherMod < 0.7
+                          ? 'rgba(99,102,241,0.12)' : 'rgba(71,85,105,0.25)',
+                        color: score.weatherMod != null && score.weatherMod < 0.7
+                          ? '#a5b4fc' : '#94a3b8',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                      }}>
+                      {score.weatherIcon} {score.weatherLabel}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             <button
@@ -237,7 +279,7 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
         </div>
 
         {/* ── Body ── */}
-        <div className="px-6 py-5 space-y-5">
+        <div className="px-4 sm:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5 max-h-[60vh] sm:max-h-none overflow-y-auto">
 
           {/* ── AI Sensory Score (only shown when data exists) ── */}
           {hasAI && (

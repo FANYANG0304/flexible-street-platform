@@ -128,7 +128,7 @@ export const Sidebar = ({
   );
 
   return (
-    <div className="absolute top-0 left-0 h-full transition-all duration-300 z-10" style={{ width: isCollapsed ? 0 : width, overflow: 'hidden' }}>
+    <div className="absolute top-0 left-0 h-full transition-all duration-300 z-30" style={{ width: isCollapsed ? 0 : width, overflow: 'hidden' }}>
       <div className="flex h-full p-4" style={{ width }}>
         <div className="flex flex-col h-full flex-1 bg-[#16171e]/90 backdrop-blur-xl rounded-2xl shadow-2xl overflow-hidden border border-white/[0.06]">
 
