@@ -4,7 +4,15 @@ import { MapPin, TrendingUp, Layers, Calendar, ArrowRight } from 'lucide-react';
 import { scenarioConfigs } from '../data/mockData';
 import { supabase } from '../lib/supabase';
 
-interface ScenarioStat { scenario_id: string; anchor_count: number; }
+// Maps each scenario to the POI categories that represent its "anchors"
+const SCENARIO_POI_CATEGORIES: Record<string, string[]> = {
+  school_dismissal: ['Education'],
+  weekend_market:   ['Community', 'Culture'],
+  dining_activation:['Food & Dining'],
+  play_street:      ['Community', 'Education'],
+  event_spillover:  ['Culture'],
+  transit_zone:     ['Transport'],
+};
 
 export const Dashboard = () => {
   const navigate = useNavigate();
@@ -12,26 +20,41 @@ export const Dashboard = () => {
   const accentHover = '#818CF8';
   const accentShadow = 'rgba(99,102,241,0.25)';
 
-  const [stats, setStats] = useState<ScenarioStat[]>([]);
-  const [totalAnchors, setTotalAnchors] = useState(0);
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
+  const [totalPOIs, setTotalPOIs] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchStats() {
       try {
-        const { data, error } = await supabase.from('anchors').select('scenario_id');
-        if (error) { console.error('Stats fetch error:', error); return; }
+        const { data, error } = await supabase.rpc('get_poi_in_bounds', {
+          min_lng: -75.30, min_lat: 39.86, max_lng: -74.95, max_lat: 40.14,
+        });
+        if (error) { console.error('POI fetch error:', error); return; }
+        const features = (data?.features ?? []) as any[];
         const counts: Record<string, number> = {};
-        (data || []).forEach((row: any) => { counts[row.scenario_id] = (counts[row.scenario_id] || 0) + 1; });
-        setStats(Object.entries(counts).map(([scenario_id, anchor_count]) => ({ scenario_id, anchor_count })));
-        setTotalAnchors((data || []).length);
+        features.forEach((f: any) => {
+          const cat = f.properties?.poi_category ?? 'Unknown';
+          counts[cat] = (counts[cat] || 0) + 1;
+        });
+        setCategoryCounts(counts);
+        setTotalPOIs(features.length);
       } catch (err) { console.error('Stats error:', err); }
       finally { setLoading(false); }
     }
     fetchStats();
   }, []);
 
-  const getCount = (id: string) => stats.find(s => s.scenario_id === id)?.anchor_count || 0;
+  // Sum POI counts for all categories mapped to a scenario (deduplicated)
+  const getCount = (id: string): number => {
+    const cats = SCENARIO_POI_CATEGORIES[id] ?? [];
+    const seen = new Set<string>();
+    let total = 0;
+    for (const cat of cats) {
+      if (!seen.has(cat)) { seen.add(cat); total += categoryCounts[cat] ?? 0; }
+    }
+    return total;
+  };
 
   return (
     <div className="min-h-screen bg-[#0c0d12]">
@@ -53,9 +76,9 @@ export const Dashboard = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
           {[
-            { Icon: MapPin, bg: 'rgba(99,102,241,0.15)', ic: '#A5B4FC', label: 'Total', val: loading ? '...' : totalAnchors.toLocaleString(), sub: 'Anchor Points' },
+            { Icon: MapPin, bg: 'rgba(99,102,241,0.15)', ic: '#A5B4FC', label: 'Total', val: loading ? '...' : totalPOIs.toLocaleString(), sub: 'Points of Interest' },
             { Icon: Layers, bg: 'rgba(16,185,129,0.15)', ic: '#6EE7B7', label: 'Active', val: '6', sub: 'Scenarios' },
-            { Icon: TrendingUp, bg: 'rgba(147,51,234,0.15)', ic: '#C4B5FD', label: 'Pending', val: '\u2014', sub: 'Avg FSI Score' },
+            { Icon: TrendingUp, bg: 'rgba(147,51,234,0.15)', ic: '#C4B5FD', label: 'Indexed', val: loading ? '...' : Object.keys(categoryCounts).length.toString(), sub: 'POI Categories' },
             { Icon: Calendar, bg: 'rgba(245,158,11,0.15)', ic: '#FCD34D', label: 'Analyzed', val: '4', sub: 'Time Periods' },
           ].map(({ Icon, bg, ic, label, val, sub }) => (
             <div key={sub} className="bg-white/[0.03] rounded-xl p-6 border border-white/[0.06] hover:bg-white/[0.05] transition-all">
@@ -85,13 +108,13 @@ export const Dashboard = () => {
                   </div>
                   <div className="text-right">
                     <p className="text-xl font-extrabold" style={{ color: s.color }}>{loading ? '...' : count.toLocaleString()}</p>
-                    <p className="text-[10px] text-gray-600">anchors</p>
+                    <p className="text-[10px] text-gray-600">POIs</p>
                   </div>
                 </div>
                 <p className="text-xs text-gray-500">{s.description}</p>
                 <div className="mt-3 w-full bg-white/[0.04] rounded-full h-1.5">
                   <div className="h-1.5 rounded-full transition-all duration-500"
-                    style={{ background: s.color, width: totalAnchors > 0 ? `${Math.min(100, (count / totalAnchors) * 100 * 3)}%` : '0%', opacity: 0.7 }} />
+                    style={{ background: s.color, width: totalPOIs > 0 ? `${Math.min(100, (count / totalPOIs) * 100 * 4)}%` : '0%', opacity: 0.7 }} />
                 </div>
               </div>
             );

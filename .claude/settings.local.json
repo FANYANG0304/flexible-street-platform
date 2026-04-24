@@ -3,7 +3,8 @@
     "allow": [
       "WebSearch",
       "Bash(node -e ':*)",
-      "Bash(node scripts/seed-open-streets.mjs)"
+      "Bash(node scripts/seed-open-streets.mjs)",
+      "Bash(npm run:*)"
     ]
   }
 }

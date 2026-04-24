@@ -7,8 +7,10 @@ import { supabase } from '../lib/supabase';
 import { generateStreetScores, getScoreColor } from './StreetScorePanel';
 import type { StreetScore } from './StreetScorePanel';
 import type { StreetAIData } from '../lib/streetScores';
-import { computeCompositeTotal, getTrafficModifier, trafficLabel, computePoiFSI } from '../lib/fsiScores';
-import type { POIRecord } from '../lib/fsiScores';
+import { computeCompositeTotal, getTrafficModifier, trafficLabel, computePoiFSI, countEducationSubtypes, rawSumAlongStreet, saturate, PROMINENCE_BONUS, CLOSEABLE_RESPONSIBLES } from '../lib/fsiScores';
+import type { POIRecord, EducationBreakdown, Dim } from '../lib/fsiScores';
+import { getEventModifier } from '../lib/events';
+import type { PhillyEvent, HolidayInfo } from '../lib/events';
 import type { StreetEventInfo } from './StreetEventPanel';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -27,10 +29,14 @@ interface MapComponentProps {
   onStreetEventClick?: (event: StreetEventInfo) => void;
   showStreetScore?: boolean;
   onStreetScoreClick?: (score: StreetScore) => void;
+  /** When true, hide every street whose responsibl is not in CLOSEABLE_RESPONSIBLES. */
+  showCloseableOnly?: boolean;
   showTestBBox?: boolean;
   streetAICache?: Map<number, StreetAIData>;
   allPOIs?: POIRecord[];
   weatherData?: import('../lib/weather').WeatherData;
+  phillyEvents?: PhillyEvent[];
+  holidayInfo?:  HolidayInfo;
 }
 
 /* ── Palettes ── */
@@ -81,6 +87,61 @@ export const SCORE_COLOR_STOPS: { value: number; color: string; label: string }[
 
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
 
+/* ── Douglas-Peucker line simplification ────────────────────────────────── */
+function dpPerp(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax, dy = by - ay;
+  if (dx === 0 && dy === 0) return Math.hypot(px - ax, py - ay);
+  const t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+function dpSimplify(pts: number[][], eps: number): number[][] {
+  if (pts.length <= 2) return pts;
+  let maxD = 0, idx = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = dpPerp(pts[i][0], pts[i][1], pts[0][0], pts[0][1], pts[pts.length-1][0], pts[pts.length-1][1]);
+    if (d > maxD) { maxD = d; idx = i; }
+  }
+  if (maxD > eps) {
+    const a = dpSimplify(pts.slice(0, idx + 1), eps);
+    const b = dpSimplify(pts.slice(idx), eps);
+    return [...a.slice(0, -1), ...b];
+  }
+  return [pts[0], pts[pts.length - 1]];
+}
+function simplifyFeatureCoords(fc: GeoJSON.FeatureCollection, eps: number): GeoJSON.FeatureCollection {
+  return {
+    ...fc,
+    features: fc.features.map(f => {
+      const g = f.geometry as any;
+      if (!g) return f;
+      let coords = g.coordinates;
+      if (g.type === 'LineString') coords = dpSimplify(coords, eps);
+      else if (g.type === 'MultiLineString') coords = (coords as number[][][]).map((c: number[][]) => dpSimplify(c, eps));
+      return { ...f, geometry: { ...g, coordinates: coords } };
+    }),
+  };
+}
+
+/**
+ * Polyline coordinates of a Line/MultiLine feature as [[lng, lat], ...].
+ * Returns null for other geometry types or empty features.
+ */
+function getFeatureCoords(feat: { geometry?: any }): [number, number][] | null {
+  const geom = feat.geometry;
+  let coords: [number, number][] = [];
+  if      (geom?.type === 'LineString')      coords = geom.coordinates;
+  else if (geom?.type === 'MultiLineString') coords = (geom.coordinates as [number, number][][]).flat();
+  else return null;
+  return coords.length ? coords : null;
+}
+
+/** Arithmetic mean of [lng, lat] pairs — used as the events/anchor point. */
+function centroidOf(coords: [number, number][]): [number, number] {
+  const lng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
+  const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
+  return [lng, lat];
+}
+
 function useDebouncedCallback<T extends (...args: any[]) => any>(fn: T, delay: number) {
   const timer = useRef<ReturnType<typeof setTimeout>>();
   return useCallback((...args: Parameters<T>) => {
@@ -100,19 +161,8 @@ function injectCSS() {
 }
 
 
-/* ── Pseudo-random score from feature ID (Mapbox expression) ── */
-function buildScoreExpr(offset: number): any {
-  return [
-    'min', 100,
-    ['max', 0,
-      ['%', ['abs', ['+', ['*', ['%', ['+', ['coalesce', ['id'], 1], offset], 9973], 7919], offset * 13]], 101]
-    ]
-  ];
-}
-const SCORE_COMMERCIAL = buildScoreExpr(1);
-const SCORE_SOCIAL     = buildScoreExpr(3);
-const SCORE_ECOLOGICAL = buildScoreExpr(5);
-const SCORE_TOTAL: any = ['round', ['/', ['+', SCORE_COMMERCIAL, SCORE_SOCIAL, SCORE_ECOLOGICAL], 3]];
+// Real composite score written via setFeatureState; -1 = not yet computed (shown as dim gray).
+const SCORE_TOTAL: any = ['coalesce', ['feature-state', 'score'], -1];
 
 
 /* ═══════════════════════════════════════
@@ -123,10 +173,13 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
   showTraffic = false, showStreetCenterline = false, showPOI = false, showPlaystreets = false,
   showStreetEvents = false, onStreetEventClick,
   showStreetScore = false, onStreetScoreClick,
+  showCloseableOnly = false,
   showTestBBox = false,
   streetAICache,
   allPOIs,
   weatherData,
+  phillyEvents,
+  holidayInfo,
 }, ref) => {
   const ctr = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
@@ -140,8 +193,43 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
   const allPOIsRef       = useRef<POIRecord[]>([]);
   const selectedTimeBinRef = useRef(selectedTimeBin);
   const weatherDataRef     = useRef(weatherData);
+  const phillyEventsRef    = useRef<PhillyEvent[]>([]);
+  const holidayInfoRef     = useRef<HolidayInfo | undefined>(undefined);
+  const showStreetScoreRef = useRef(showStreetScore);
+  /**
+   * Monotonic abort tag. Bumped on time / weather / POI / AI changes AND on
+   * movestart so in-flight batched scoring runs bail out cleanly.
+   */
+  const scoreVersionRef    = useRef(0);
+  /**
+   * Per-feature skip cache (objectId → already scored at the current
+   * cache generation). Cleared only by clearScoredFeatures — i.e. NOT on
+   * pan, so panning back to an already-coloured area is instant.
+   */
+  const scoredObjectsRef   = useRef<Set<number>>(new Set());
+  /** Stable ref to the current applyStreetScores impl (set once map is ready). */
+  const applyScoresRef     = useRef<(() => void) | null>(null);
   useEffect(() => { selectedTimeBinRef.current = selectedTimeBin; }, [selectedTimeBin]);
   useEffect(() => { weatherDataRef.current = weatherData; }, [weatherData]);
+  useEffect(() => { phillyEventsRef.current = phillyEvents ?? []; }, [phillyEvents]);
+  useEffect(() => { holidayInfoRef.current = holidayInfo; }, [holidayInfo]);
+  useEffect(() => { showStreetScoreRef.current = showStreetScore; }, [showStreetScore]);
+
+  /** Real cache invalidation: abort in-flight batches, drop the per-feature
+   *  skip cache, AND wipe the feature-state that was written by the previous
+   *  batch. Without the wipe, lines keep rendering yesterday's colour until
+   *  the new batch happens to reach them — which is what produced the
+   *  "line is one colour, popup says another, click re-paints" race. */
+  function clearScoredFeatures() {
+    scoreVersionRef.current++;
+    scoredObjectsRef.current.clear();
+    if (map.current?.getSource('street-centerline')) {
+      map.current.removeFeatureState({
+        source:      'street-centerline',
+        sourceLayer: 'Street_Centerline-46lvna',
+      });
+    }
+  }
 
   useEffect(() => {
     const cache = streetAICache ?? new Map();
@@ -149,9 +237,21 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
     const nameIdx = new Map<string, StreetAIData>();
     for (const v of cache.values()) nameIdx.set(v.streetName.toUpperCase().trim(), v);
     aiNameIndexRef.current = nameIdx;
-  }, [streetAICache]);
+    // Re-score map so AI-adjusted colors match the detail panel
+    if (cache.size > 0 && showStreetScoreRef.current) {
+      clearScoredFeatures();
+      applyScoresRef.current?.();
+    }
+  }, [streetAICache]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { allPOIsRef.current = allPOIs ?? []; }, [allPOIs]);
+  useEffect(() => {
+    allPOIsRef.current = allPOIs ?? [];
+    // When POIs arrive, re-score street score layer if it's already visible
+    if (allPOIs?.length && showStreetScoreRef.current) {
+      clearScoredFeatures();   // bumps version → next rAF batch re-scores
+      applyScoresRef.current?.();
+    }
+  }, [allPOIs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Inject AI scores into Mapbox feature state ── */
   useEffect(() => {
@@ -236,7 +336,11 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
       });
       if (error) { console.error('Street events fetch error:', error); return; }
       const src = map.current?.getSource('street-events-data') as mapboxgl.GeoJSONSource;
-      if (src && data) { src.setData(data); streetEventsLoaded.current = true; }
+      if (src && data) {
+        // ~5 m tolerance in degrees to straighten jagged boundary-traced geometries
+        src.setData(simplifyFeatureCoords(data as GeoJSON.FeatureCollection, 0.00005));
+        streetEventsLoaded.current = true;
+      }
     } finally { loadingStreetEvents.current = false; }
   }, [showStreetEvents]);
 
@@ -268,7 +372,16 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
 
     /* ── 1. Street Centerline (bottom) ── */
     if (!map.current.getSource('street-centerline')) {
-      map.current.addSource('street-centerline', { type: 'vector', url: 'mapbox://yangf0304.az4ve7hc' });
+      // promoteId pins the stable GIS objectid as each feature's Mapbox `id`
+      // across ALL zoom levels. Without this, Mapbox auto-assigns per-zoom
+      // feature IDs independently, so feature-state written at z=17 for one
+      // street would randomly collide with a DIFFERENT street's id at z=13 —
+      // that's the "green when zoomed out, yellow when zoomed in" glitch.
+      map.current.addSource('street-centerline', {
+        type: 'vector',
+        url:  'mapbox://yangf0304.az4ve7hc',
+        promoteId: 'objectid',
+      });
       const sm: any[] = ['match', ['get', 'responsibl']];
       for (const [v, c] of STREET_COLORS) sm.push(v, c);
       sm.push(STREET_FALLBACK);
@@ -283,19 +396,19 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
 
     /* ── 1b. Street Score layers ── */
     if (!map.current.getLayer('street-score-glow')) {
-      // Glow for high-scoring streets (>= 80)
+      // Glow for high-scoring streets (>= 80). Mapbox GL disallows
+      // feature-state expressions inside a layer filter, so the "score ≥ 80"
+      // gate lives in `line-opacity` (which DOES accept feature-state) —
+      // below-80 features render at opacity 0 and are effectively invisible.
       map.current.addLayer({
         id: 'street-score-glow', type: 'line', source: 'street-centerline',
         'source-layer': 'Street_Centerline-46lvna', minzoom: 12,
         layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
-        filter: ['all',
-          ['>=', SCORE_TOTAL, 80],
-          ['any', ['>=', ['zoom'], 13.5], ['match', ['get', 'responsibl'], ['STATE'], true, false]],
-        ],
+        filter: ['any', ['>=', ['zoom'], 13.5], ['match', ['get', 'responsibl'], ['STATE'], true, false]],
         paint: {
           'line-color': '#10B981',
           'line-width': ['interpolate',['linear'],['zoom'],12,6,14,12,18,22],
-          'line-opacity': 0.12,
+          'line-opacity': ['case', ['>=', SCORE_TOTAL, 80], 0.12, 0] as any,
           'line-blur': 4,
         },
       });
@@ -307,13 +420,15 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
         filter: ['any', ['>=', ['zoom'], 13.5], ['match', ['get', 'responsibl'], ['STATE'], true, false]],
         layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
         paint: {
+          // Discrete bands matching the sidebar legend exactly — no
+          // interpolation, so 86 reads as yellow (75-89), not yellow-green.
           'line-color': [
-            'interpolate', ['linear'], SCORE_TOTAL,
-            0,  '#EF4444',
-            50, '#F97316',
-            75, '#EAB308',
-            90, '#10B981',
-            100,'#059669',
+            'step', SCORE_TOTAL,
+            'rgba(100,116,139,0.35)',  // < 0  unscored
+            0,  '#EF4444',             // 0–49   red
+            50, '#F97316',             // 50–74  orange
+            75, '#EAB308',             // 75–89  yellow
+            90, '#10B981',             // 90+    green
           ] as any,
           'line-width': ['interpolate',['linear'],['zoom'],12,1.5,14,3,18,5],
           'line-opacity': 0.85,
@@ -439,7 +554,7 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
 
     /* ── 3. Street Events (Center City Open Streets) ── */
     if (!map.current.getSource('street-events-data')) {
-      map.current.addSource('street-events-data', { type: 'geojson', data: EMPTY_FC });
+      map.current.addSource('street-events-data', { type: 'geojson', data: EMPTY_FC, tolerance: 1.0 });
       map.current.addLayer({
         id: 'street-events-glow', type: 'line', source: 'street-events-data',
         minzoom: 12,
@@ -605,20 +720,79 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
       const fid      = typeof feat.id === 'number' ? feat.id : 0;
       const objectId = props.objectid != null ? Number(props.objectid) : fid;
 
-      const fsiData  = computePoiFSI(e.lngLat.lat, e.lngLat.lng, allPOIsRef.current) ?? undefined;
-      const scores = generateStreetScores(objectId, props.stname, fsiData, props.responsibl);
+      // Single source of truth: read the values applyScores wrote to
+      // feature-state. Fall back to this tile's centroid only when the idle
+      // batch hasn't reached this feature yet.
+      const state = map.current.getFeatureState({
+        source: 'street-centerline', sourceLayer: 'Street_Centerline-46lvna', id: fid,
+      }) as {
+        commercial?: number; community?: number; mobility?: number;
+        fsiLat?: number; fsiLng?: number; edu?: EducationBreakdown;
+      } | undefined;
+
+      let commercial: number, community: number, mobility: number, fsiLat: number, fsiLng: number;
+      let eduBreakdown: EducationBreakdown | undefined;
+      let fromFallback = false;
+      if (state
+          && typeof state.commercial === 'number'
+          && typeof state.community  === 'number'
+          && typeof state.mobility   === 'number'
+          && typeof state.fsiLat     === 'number'
+          && typeof state.fsiLng     === 'number') {
+        commercial   = state.commercial;
+        community    = state.community;
+        mobility     = state.mobility;
+        fsiLat       = state.fsiLat;
+        fsiLng       = state.fsiLng;
+        eduBreakdown = state.edu;
+      } else {
+        const coords = getFeatureCoords(feat);
+        if (!coords) return;
+        const fsi = computePoiFSI(coords, allPOIsRef.current);
+        if (!fsi) return;  // POIs not loaded yet; skip tooltip
+        const [cLng, cLat] = centroidOf(coords);
+        commercial   = fsi.commercial;
+        community    = fsi.community;
+        mobility     = fsi.mobility;
+        fsiLat       = cLat;
+        fsiLng       = cLng;
+        eduBreakdown = countEducationSubtypes(coords, allPOIsRef.current);
+        fromFallback = true;
+      }
+
+      const social = Math.max(community, mobility);
+      const scores = generateStreetScores(
+        objectId, props.stname,
+        { commercial, community, mobility, social, total: Math.max(commercial, community) },
+        props.responsibl,
+        eduBreakdown,
+      );
 
       // 叠加 AI 感官数据（如果有）— name > objectid
       const ai = aiNameIndexRef.current.get((props.stname ?? '').toUpperCase().trim())
               ?? aiCacheRef.current.get(objectId);
 
-      // 交通 + 天气修正
-      const tMod = getTrafficModifier(props.stname, props.responsibl, selectedTimeBinRef.current);
-      const wMod = weatherDataRef.current?.modifier ?? 1.0;
+      // 交通 + 天气 + 活动 + 节日修正 — anchored to the SAME point applyScores used.
+      const tMod  = getTrafficModifier(props.stname, props.responsibl, selectedTimeBinRef.current);
+      const wMod  = weatherDataRef.current?.modifier ?? 1.0;
+      const { mod: eMod } = getEventModifier(fsiLat, fsiLng, phillyEventsRef.current);
+      const hMod  = holidayInfoRef.current?.modifier ?? 1.0;
 
       // 综合 FSI
-      scores.total = computeCompositeTotal(scores.total, ai?.aiScore, scores.closeability, tMod, wMod);
+      scores.total = computeCompositeTotal(scores.total, ai?.aiScore, tMod, wMod, eMod, hMod);
       const color  = getScoreColor(scores.total);
+
+      // If we got here via fallback, persist the result so the line colour
+      // immediately matches the popup AND the next idle batch skips this
+      // feature. First-touch wins; nothing recomputes afterwards.
+      if (fromFallback) {
+        void social; // keep for back-compat debuggers
+        map.current.setFeatureState(
+          { source: 'street-centerline', sourceLayer: 'Street_Centerline-46lvna', id: fid },
+          { score: scores.total, commercial, community, mobility, fsiLat, fsiLng, edu: eduBreakdown },
+        );
+        scoredObjectsRef.current.add(objectId);
+      }
 
       const dispName = ai?.streetName || props.stname || `Street #${objectId}`;
       const kwHtml   = ai?.keywords?.length
@@ -659,31 +833,103 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
       const fid      = typeof feat.id === 'number' ? feat.id : 0;
       const objectId = props.objectid != null ? Number(props.objectid) : fid;
 
-      const fsiData  = computePoiFSI(e.lngLat.lat, e.lngLat.lng, allPOIsRef.current) ?? undefined;
-      const scores = generateStreetScores(objectId, props.stname, fsiData, props.responsibl);
+      // Read the canonical values applyScores wrote to feature-state — those
+      // ARE the numbers the line colour was drawn from. Fall back to this
+      // tile's centroid only if the feature hasn't been batch-scored yet.
+      const state = map.current!.getFeatureState({
+        source: 'street-centerline', sourceLayer: 'Street_Centerline-46lvna', id: fid,
+      }) as {
+        commercial?: number; community?: number; mobility?: number;
+        fsiLat?: number; fsiLng?: number; edu?: EducationBreakdown;
+      } | undefined;
 
-      // 叠加 AI 感官数据（如果有）— name > objectid
+      let commercial: number, community: number, mobility: number, fsiLat: number, fsiLng: number;
+      let eduBreakdown: EducationBreakdown | undefined;
+      if (state
+          && typeof state.commercial === 'number'
+          && typeof state.community  === 'number'
+          && typeof state.mobility   === 'number'
+          && typeof state.fsiLat     === 'number'
+          && typeof state.fsiLng     === 'number') {
+        commercial   = state.commercial;
+        community    = state.community;
+        mobility     = state.mobility;
+        fsiLat       = state.fsiLat;
+        fsiLng       = state.fsiLng;
+        eduBreakdown = state.edu;
+      } else {
+        const coords = getFeatureCoords(feat);
+        if (!coords) return;
+        const fsi = computePoiFSI(coords, allPOIsRef.current);
+        if (!fsi) return;  // POIs not loaded yet; skip panel
+        const [cLng, cLat] = centroidOf(coords);
+        commercial   = fsi.commercial;
+        community    = fsi.community;
+        mobility     = fsi.mobility;
+        fsiLat       = cLat;
+        fsiLng       = cLng;
+        eduBreakdown = countEducationSubtypes(coords, allPOIsRef.current);
+      }
+
+      const social = Math.max(community, mobility);
+      const scores = generateStreetScores(
+        objectId, props.stname,
+        { commercial, community, mobility, social, total: Math.max(commercial, community) },
+        props.responsibl,
+        eduBreakdown,
+      );
+
+      // Street View should reflect what the user actually clicked on.
+      scores.lat = e.lngLat.lat;
+      scores.lng = e.lngLat.lng;
+
+      // Overlay AI sensory data if available — name lookup > objectid lookup
       const ai = aiNameIndexRef.current.get((props.stname ?? '').toUpperCase().trim())
               ?? aiCacheRef.current.get(objectId);
       if (ai) {
         scores.streetName = ai.streetName || scores.streetName;
         scores.aiScore    = ai.aiScore;
         scores.keywords   = ai.keywords;
-        scores.lat        = ai.lat;
-        scores.lng        = ai.lng;
+        // AI lat/lng is more precise (centroid of the analysed segment)
+        scores.lat        = ai.lat ?? scores.lat;
+        scores.lng        = ai.lng ?? scores.lng;
       }
 
-      // 交通 + 天气修正
+      // 交通 + 天气 + 活动 + 节日修正 — anchored to the SAME point applyScores used.
       const tMod = getTrafficModifier(props.stname, props.responsibl, selectedTimeBinRef.current);
       const wMod = weatherDataRef.current?.modifier ?? 1.0;
+      const { mod: eMod, label: eLabel } = getEventModifier(fsiLat, fsiLng, phillyEventsRef.current);
+      const holiday = holidayInfoRef.current;
+      const hMod    = holiday?.modifier ?? 1.0;
+
       scores.trafficMod   = tMod;
       scores.trafficLabel = trafficLabel(tMod);
       scores.weatherMod   = wMod;
       scores.weatherLabel = weatherData?.label;
       scores.weatherIcon  = weatherData?.icon;
+      if (eMod > 1.0) {
+        scores.eventsMod   = eMod;
+        scores.eventsLabel = eLabel ?? undefined;
+      }
+      if (hMod > 1.0) {
+        scores.holidayMod   = hMod;
+        scores.holidayLabel = holiday?.name;
+        scores.holidayIcon  = holiday?.icon;
+      }
 
       // 综合 FSI
-      scores.total = computeCompositeTotal(scores.total, scores.aiScore, scores.closeability, tMod, wMod);
+      scores.total = computeCompositeTotal(scores.total, scores.aiScore, tMod, wMod, eMod, hMod);
+      // Push the full state (total + sub-scores + anchor) so the line picks up
+      // the new colour without waiting for the next idle, and subsequent hovers
+      // keep reading the same numbers.
+      if (fid != null) {
+        void social; // legacy derived value; feature-state carries its components
+        map.current?.setFeatureState(
+          { source: 'street-centerline', sourceLayer: 'Street_Centerline-46lvna', id: fid },
+          { score: scores.total, commercial, community, mobility, fsiLat, fsiLng, edu: eduBreakdown },
+        );
+        scoredObjectsRef.current.add(objectId);
+      }
 
       if (map.current?.getLayer('street-score-highlight')) {
         map.current.setFilter('street-score-highlight', ['==', ['id'], fid]);
@@ -714,8 +960,200 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
   /* ── Toggle Streets ── */
   useEffect(() => {
     if (!map.current || !ready) return;
-    if (map.current.getLayer('street-centerline-lines')) map.current.setLayoutProperty('street-centerline-lines', 'visibility', showStreetCenterline ? 'visible' : 'none');
-  }, [ready, showStreetCenterline]);
+    if (!map.current.getLayer('street-centerline-lines')) return;
+    // When the score layer is on, hide the ownership-coloured centerline so
+    // it can never blend through and dirty the score colours.
+    const visible = showStreetCenterline && !showStreetScore;
+    map.current.setLayoutProperty('street-centerline-lines', 'visibility', visible ? 'visible' : 'none');
+  }, [ready, showStreetCenterline, showStreetScore]);
+
+  /* ── Real street scores via feature-state ── */
+  // Register map idle listener once; apply scores for newly visible features.
+  useEffect(() => {
+    if (!ready || !map.current) return;
+
+    function applyScores() {
+      if (!map.current || !allPOIsRef.current.length) return;
+      if (!map.current.getLayer('street-score-lines')) return;
+
+      const features = map.current.queryRenderedFeatures({ layers: ['street-score-lines'] });
+      const version  = scoreVersionRef.current;
+
+      // Vector tiles clip each street into multiple partial features — one per
+      // tile the street crosses. If we score each partial separately, the last
+      // tile processed wins and the same fid can flip between tile centroids
+      // on every pan. Group by fid and merge the coordinates so each feature
+      // gets ONE deterministic viewport-anchored centroid per idle.
+      type Group = { coords: [number, number][]; props: any };
+      const byFid = new Map<number, Group>();
+      for (const feat of features) {
+        const rawId = feat.id;
+        if (rawId == null) continue;
+        const fid = typeof rawId === 'number' ? rawId : parseInt(String(rawId), 10);
+        if (isNaN(fid)) continue;
+
+        const geom = (feat.geometry as any);
+        let coords: [number, number][] = [];
+        if      (geom?.type === 'LineString')      coords = geom.coordinates;
+        else if (geom?.type === 'MultiLineString') coords = (geom.coordinates as [number, number][][]).flat();
+        if (!coords.length) continue;
+
+        const g = byFid.get(fid);
+        if (g) g.coords.push(...coords);
+        else byFid.set(fid, { coords: coords.slice(), props: feat.properties || {} });
+      }
+
+      // ── Pass 1 ─ compute raw sums + centroid for EVERY viewport feature
+      // (including already-scored ones — they provide the neighbourhood
+      // context for Pass 2's prominence comparison).
+      interface FeatureData {
+        fid:       number;
+        objectId:  number;
+        coords:    [number, number][];
+        props:     any;
+        centroid:  [number, number];   // [lng, lat]
+        rawC:      number;
+        rawCo:     number;
+        rawM:      number;
+      }
+      const pois = allPOIsRef.current;
+      const featureData: FeatureData[] = [];
+      for (const [fid, { coords, props }] of byFid) {
+        const objectId = props.objectid != null ? Number(props.objectid) : fid;
+        const centroid = centroidOf(coords);
+        featureData.push({
+          fid,
+          objectId,
+          coords,
+          props,
+          centroid,
+          rawC:  rawSumAlongStreet(coords, pois, 'commercial'),
+          rawCo: rawSumAlongStreet(coords, pois, 'community'),
+          rawM:  rawSumAlongStreet(coords, pois, 'mobility'),
+        });
+      }
+
+      // Spatial grid keyed by ~400m cells so each feature can cheaply query
+      // its neighbourhood (the 3×3 surrounding cells ≈ 1.2 km radius).
+      const CELL_DEG = 0.004;   // ≈ 440 m at Philly latitude
+      const grid = new Map<string, FeatureData[]>();
+      for (const fd of featureData) {
+        const cx = Math.floor(fd.centroid[0] / CELL_DEG);
+        const cy = Math.floor(fd.centroid[1] / CELL_DEG);
+        const key = `${cx}_${cy}`;
+        const cell = grid.get(key);
+        if (cell) cell.push(fd);
+        else grid.set(key, [fd]);
+      }
+      const neighboursOf = (fd: FeatureData): FeatureData[] => {
+        const cx = Math.floor(fd.centroid[0] / CELL_DEG);
+        const cy = Math.floor(fd.centroid[1] / CELL_DEG);
+        const out: FeatureData[] = [];
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+          const cell = grid.get(`${cx + dx}_${cy + dy}`);
+          if (cell) out.push(...cell);
+        }
+        return out;
+      };
+      const median = (arr: number[]): number => {
+        if (arr.length === 0) return 0;
+        const s = [...arr].sort((a, b) => a - b);
+        return s[Math.floor(s.length / 2)];
+      };
+      const prominenceBonus = (raw: number, neighbourRaws: number[], dim: Dim): number => {
+        const cap = PROMINENCE_BONUS[dim];
+        if (cap === 0 || neighbourRaws.length <= 1) return 0;
+        const med = median(neighbourRaws);
+        if (raw <= med) return 0;
+        // Local scale: in sparse areas the scale floors at 0.3; in dense
+        // neighbourhoods it grows with the median so only really dominant
+        // features earn the full cap.
+        const scale = Math.max(0.3, med * 2);
+        const dominance = Math.min(1, (raw - med) / scale);
+        return cap * dominance;
+      };
+
+      // ── Pass 2 ─ batched rAF scoring with prominence bonus layered on top.
+      const BATCH = 30;
+      let idx = 0;
+      function processBatch() {
+        if (!map.current || scoreVersionRef.current !== version) return;
+
+        const end = Math.min(idx + BATCH, featureData.length);
+        for (; idx < end; idx++) {
+          const fd = featureData[idx];
+          // Already scored at this cache generation → skip writeback.
+          if (scoredObjectsRef.current.has(fd.objectId)) continue;
+
+          const nbrs = neighboursOf(fd);
+          const nbrC  = nbrs.map(n => n.rawC);
+          const nbrCo = nbrs.map(n => n.rawCo);
+          const nbrM  = nbrs.map(n => n.rawM);
+
+          // Per-dim score = saturated absolute + local-leader bonus.
+          const commercial = Math.min(100,
+            saturate(fd.rawC,  'commercial') + prominenceBonus(fd.rawC,  nbrC,  'commercial'));
+          const community  = Math.min(100,
+            saturate(fd.rawCo, 'community')  + prominenceBonus(fd.rawCo, nbrCo, 'community'));
+          const mobility   = Math.min(100,
+            saturate(fd.rawM,  'mobility')   + prominenceBonus(fd.rawM,  nbrM,  'mobility'));
+
+          const mlTotal    = Math.max(commercial, community);   // mobility excluded
+          const [lng, lat] = fd.centroid;
+          const props      = fd.props;
+          const ai = aiNameIndexRef.current.get((props.stname ?? '').toUpperCase().trim())
+                  ?? aiCacheRef.current.get(fd.objectId);
+          const score = computeCompositeTotal(
+            mlTotal, ai?.aiScore,
+            getTrafficModifier(props.stname, props.responsibl, selectedTimeBinRef.current),
+            weatherDataRef.current?.modifier ?? 1.0,
+            getEventModifier(lat, lng, phillyEventsRef.current).mod,
+            holidayInfoRef.current?.modifier ?? 1.0,
+          );
+          const eduBreakdown = countEducationSubtypes(fd.coords, pois);
+
+          map.current.setFeatureState(
+            { source: 'street-centerline', sourceLayer: 'Street_Centerline-46lvna', id: fd.fid },
+            {
+              score,
+              commercial,
+              community,
+              mobility,
+              fsiLat: lat,
+              fsiLng: lng,
+              edu:    eduBreakdown,
+            },
+          );
+          scoredObjectsRef.current.add(fd.objectId);
+        }
+
+        if (idx < featureData.length) requestAnimationFrame(processBatch);
+      }
+
+      requestAnimationFrame(processBatch);
+    }
+
+    applyScoresRef.current = applyScores;
+    const onIdle      = () => { if (showStreetScoreRef.current) applyScores(); };
+    // Any new user interaction (drag / zoom) bumps the version so the
+    // scheduled rAF batches notice and bail out — the next idle restarts
+    // scoring with the up-to-date viewport.
+    const onMoveStart = () => { scoreVersionRef.current++; };
+    map.current.on('idle',      onIdle);
+    map.current.on('movestart', onMoveStart);
+    return () => {
+      map.current?.off('idle',      onIdle);
+      map.current?.off('movestart', onMoveStart);
+      applyScoresRef.current = null;
+    };
+  }, [ready]);
+
+  // Re-score all visible features when time / weather / events / holiday change.
+  useEffect(() => {
+    if (!ready || !showStreetScore || !map.current) return;
+    clearScoredFeatures();
+    applyScoresRef.current?.();
+  }, [ready, showStreetScore, selectedTimeBin, weatherData, phillyEvents, holidayInfo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Toggle Street Score ── */
   useEffect(() => {
@@ -724,12 +1162,40 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
     for (const lid of ['street-score-lines', 'street-score-glow', 'street-score-highlight']) {
       if (map.current.getLayer(lid)) map.current.setLayoutProperty(lid, 'visibility', vis);
     }
-    if (!showStreetScore) {
-      // Clear highlight & popup
+    if (showStreetScore) {
+      // Apply real scores immediately when layer turns on
+      applyScoresRef.current?.();
+    } else {
       if (map.current.getLayer('street-score-highlight')) map.current.setFilter('street-score-highlight', ['==', ['id'], -1]);
       popupRef.current?.remove();
     }
   }, [ready, showStreetScore]);
+
+  /* ── Toggle Closeable-Only filter ──
+     Swaps the filter on score / glow / centerline layers so non-closeable
+     streets (STATE / PRIVATE / AIRPORT / STRICKEN / ...) drop out entirely.
+     One-shot quick filter for "what could we actually activate?" */
+  useEffect(() => {
+    if (!map.current || !ready) return;
+
+    const baseLines: any  = ['any',
+      ['>=', ['zoom'], 13.5],
+      ['match', ['get', 'responsibl'], ['STATE'], true, false],
+    ];
+    const closeable: any = ['all',
+      ['>=', ['zoom'], 13.5],
+      ['match', ['get', 'responsibl'], CLOSEABLE_RESPONSIBLES, true, false],
+    ];
+    const linesFilter = showCloseableOnly ? closeable : baseLines;
+
+    if (map.current.getLayer('street-score-lines'))      map.current.setFilter('street-score-lines',      linesFilter);
+    if (map.current.getLayer('street-centerline-lines')) map.current.setFilter('street-centerline-lines', linesFilter);
+    if (map.current.getLayer('street-score-glow')) {
+      // Feature-state can't go in filter; the ≥80 gate is enforced by the
+      // `line-opacity` case expression in the glow layer's paint instead.
+      map.current.setFilter('street-score-glow', linesFilter);
+    }
+  }, [ready, showCloseableOnly]);
 
   /* ── Toggle Playstreets ── */
   useEffect(() => {
