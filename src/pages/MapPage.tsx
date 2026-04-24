@@ -19,7 +19,7 @@ import { computePoiFSI, computeCompositeTotal, getTrafficModifier } from '../lib
 import type { POIRecord } from '../lib/fsiScores';
 import { logCalibration } from '../lib/fsiCalibrate';
 import { fetchPhillyEvents, getPhillyHoliday, getEventModifier } from '../lib/events';
-import type { PhillyEvent, HolidayInfo } from '../lib/events';
+import type { PhillyEvent } from '../lib/events';
 import { supabase } from '../lib/supabase';
 import type { Anchor, ScenarioConfig, ScenarioId } from '../types';
 
