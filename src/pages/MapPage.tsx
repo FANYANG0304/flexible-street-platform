@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Home, Maximize } from 'lucide-react';
+import { Home, Maximize, MapPin } from 'lucide-react';
 import { MapComponent } from '../components/MapComponent';
 import type { MapHandle } from '../components/MapComponent';
 import { Sidebar } from '../components/Sidebar';
@@ -453,6 +453,13 @@ export const MapPage = () => {
               title="How to use this platform"
             >
               <span className="w-5 h-5 flex items-center justify-center font-bold text-gray-400" style={{ fontSize: '14px' }}>?</span>
+            </button>
+            <button
+              onClick={() => mapRef.current?.flyToPennSansom()}
+              className="p-2 bg-[#1e1f2b] rounded-lg shadow-md hover:shadow-lg transition-all hover:bg-[#282938] border border-white/[0.06]"
+              title="Demo street · Sansom St (Penn Law / White Dog Cafe)"
+            >
+              <MapPin className="w-5 h-5" style={{ color: '#A5B4FC' }} />
             </button>
             <button
               onClick={() => mapRef.current?.fitToPhiladelphia()}

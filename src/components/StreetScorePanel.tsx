@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
-import { X, TrendingUp, ShoppingBag, Users, Star, Sparkles, GripHorizontal, Info } from 'lucide-react';
-import { getCloseability, closeabilityLabel, closeabilityColor } from '../lib/fsiScores';
-import type { FSIData, Closeability, EducationBreakdown } from '../lib/fsiScores';
+import { X, TrendingUp, ShoppingBag, Users, Star, Sparkles, GripHorizontal, Info, Siren, Network } from 'lucide-react';
+import { getCloseability, closeabilityLabel, closeabilityColor, emergencyReasonLabel } from '../lib/fsiScores';
+import type { FSIData, Closeability, EducationBreakdown, EmergencyAmenity } from '../lib/fsiScores';
 
 const SV_KEY = import.meta.env.VITE_GOOGLE_SV_KEY;
 
@@ -40,6 +40,15 @@ export interface StreetScore {
   holidayMod?:     number;
   holidayLabel?:   string;   // holiday/festival name if today
   holidayIcon?:    string;
+  // Emergency-services veto — populated by the map's applyScores pipeline.
+  // `vetoReason` is set whenever the street is within an emergency facility's
+  // access buffer (hospital / fire / police) and closure must be refused.
+  vetoReason?:     EmergencyAmenity;
+  vetoDistanceM?:  number;
+  // Closure-cluster membership — set when this street is part of a group
+  // of ≥3 closeable, ≥75-score streets that share intersections. Closing
+  // any one of them implies coordinating the rest.
+  clusterSize?:    number;
 }
 
 interface StreetScorePanelProps {
@@ -184,7 +193,7 @@ function getScoreFactors(score: StreetScore): ScoreFactor[] {
       // fire in the true Good / Excellent range, otherwise a 66 reads as
       // "excellent" even though the legend calls it Fair.
       impact:  d.val >= 75 ? 'positive' : d.val >= 50 ? 'neutral' : 'negative',
-      detail:  `Score ${d.val}`,
+      detail:  `Score ${d.val.toFixed(2)}`,
       explain: d.explain,
     });
   }
@@ -479,7 +488,10 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
       className={`z-50 animate-fadeIn ${isMobileScreen ? 'w-full' : 'w-[520px] max-w-[calc(100vw-48px)]'}`}
       style={posStyle}
     >
-      <div className={`bg-[#16171e]/95 backdrop-blur-xl shadow-2xl border border-white/[0.08] overflow-hidden ${isMobileScreen ? 'rounded-t-2xl rounded-b-none' : 'rounded-2xl'}`}>
+      <div
+        className={`bg-[#16171e]/95 backdrop-blur-xl shadow-2xl border border-white/[0.08] overflow-hidden flex flex-col ${isMobileScreen ? 'rounded-t-2xl rounded-b-none' : 'rounded-2xl'}`}
+        style={{ maxHeight: isMobileScreen ? '85vh' : 'calc(100vh - 48px)' }}
+      >
 
         {/* ── Header (drag handle — desktop only) ── */}
         <div
@@ -533,6 +545,18 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
                   }}>
                   {closeabilityLabel(score.closeability)}
                 </span>
+                {score.clusterSize != null && score.clusterSize >= 3 && (
+                  <span
+                    className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                    style={{
+                      background: 'rgba(6,182,212,0.14)',
+                      color: '#67E8F9',
+                      border: '1px solid rgba(6,182,212,0.30)',
+                    }}
+                  >
+                    <Network className="w-3 h-3" /> Cluster · {score.clusterSize} streets
+                  </span>
+                )}
               </div>
 
               {/* Live conditions row */}
@@ -590,7 +614,43 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
         </div>
 
         {/* ── Body ── */}
-        <div className="px-4 sm:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5 max-h-[60vh] sm:max-h-none overflow-y-auto">
+        <div className="px-4 sm:px-6 py-4 sm:py-5 space-y-4 sm:space-y-5 flex-1 min-h-0 overflow-y-auto">
+
+          {/* ── Safety / detour banners — top-priority warnings ── */}
+          {score.vetoReason && (
+            <div
+              className="rounded-xl p-3 border flex items-start gap-3"
+              style={{ background: 'rgba(236,72,153,0.10)', borderColor: 'rgba(236,72,153,0.35)' }}
+            >
+              <Siren className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#F9A8D4' }} />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold uppercase tracking-wider" style={{ color: '#F9A8D4' }}>
+                  Cannot close · emergency access route
+                </div>
+                <div className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                  {emergencyReasonLabel(score.vetoReason)}
+                  {score.vetoDistanceM != null && ` · ${score.vetoDistanceM} m from facility`}
+                  . This street must remain open for ambulances, fire trucks, or patrol cars regardless of the activation score.
+                </div>
+              </div>
+            </div>
+          )}
+          {!score.vetoReason && score.clusterSize != null && score.clusterSize >= 3 && (
+            <div
+              className="rounded-xl p-3 border flex items-start gap-3"
+              style={{ background: 'rgba(6,182,212,0.08)', borderColor: 'rgba(6,182,212,0.28)' }}
+            >
+              <Network className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#67E8F9' }} />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-bold uppercase tracking-wider" style={{ color: '#67E8F9' }}>
+                  Closure cluster · {score.clusterSize} streets
+                </div>
+                <div className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                  This street is one of {score.clusterSize} connected, closeable streets that all score ≥ 75. Closing them together would fragment the local network — single closure is fine, but coordinate the cluster as a group before activating multiple at once.
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Street View — shown whenever coordinates + key are available ── */}
           {svImageUrl && (
@@ -698,7 +758,7 @@ export const StreetScorePanel = ({ score, onClose }: StreetScorePanelProps) => {
                         <Icon className="w-3.5 h-3.5" style={{ color: accent }} />
                         <span className="text-xs font-semibold text-gray-300">{label}</span>
                       </div>
-                      <span className="text-sm font-extrabold" style={{ color: valColor }}>{val}</span>
+                      <span className="text-sm font-extrabold" style={{ color: valColor }}>{val.toFixed(2)}</span>
                     </div>
                     <div className="w-full h-2 rounded-full bg-white/[0.06] overflow-hidden">
                       <div

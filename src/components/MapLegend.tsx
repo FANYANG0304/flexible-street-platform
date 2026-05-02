@@ -72,6 +72,25 @@ export const MapLegend = ({
               </Section>
             )}
 
+            {/* Closure Constraints — only meaningful when score layer is on */}
+            {showStreetScore && (
+              <Section title="Closure Constraints">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="w-4 h-[3px] rounded-full flex-shrink-0" style={{ background: '#EC4899' }} />
+                    <span className="text-[10px] text-gray-500">Emergency access · cannot close</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-4 flex-shrink-0 rounded-full"
+                      style={{ height: 6, background: 'rgba(6,182,212,0.32)' }}
+                    />
+                    <span className="text-[10px] text-gray-500">Closure cluster · coordinate group</span>
+                  </div>
+                </div>
+              </Section>
+            )}
+
             {/* Traffic */}
             {showTraffic && (
               <Section title="Traffic">

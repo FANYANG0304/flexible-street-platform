@@ -7,15 +7,18 @@ import { supabase } from '../lib/supabase';
 import { generateStreetScores, getScoreColor } from './StreetScorePanel';
 import type { StreetScore } from './StreetScorePanel';
 import type { StreetAIData } from '../lib/streetScores';
-import { computeCompositeTotal, getTrafficModifier, trafficLabel, computePoiFSI, countEducationSubtypes, rawSumAlongStreet, saturate, PROMINENCE_BONUS, CLOSEABLE_RESPONSIBLES } from '../lib/fsiScores';
-import type { POIRecord, EducationBreakdown, Dim } from '../lib/fsiScores';
+import { computeCompositeTotal, getTrafficModifier, trafficLabel, computePoiFSI, countEducationSubtypes, rawSumAlongStreet, saturate, PROMINENCE_BONUS, CLOSEABLE_RESPONSIBLES, getEmergencyVeto, getCloseability, findClusters } from '../lib/fsiScores';
+import type { POIRecord, EducationBreakdown, Dim, EmergencyAmenity, ClusterCandidate } from '../lib/fsiScores';
 import { getEventModifier } from '../lib/events';
 import type { PhillyEvent, HolidayInfo } from '../lib/events';
 import type { StreetEventInfo } from './StreetEventPanel';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-export interface MapHandle { fitToPhiladelphia: () => void; }
+export interface MapHandle {
+  fitToPhiladelphia: () => void;
+  flyToPennSansom:   () => void;
+}
 
 interface MapComponentProps {
   activeScenarios: Set<ScenarioId>;
@@ -163,6 +166,11 @@ function injectCSS() {
 
 // Real composite score written via setFeatureState; -1 = not yet computed (shown as dim gray).
 const SCORE_TOTAL: any = ['coalesce', ['feature-state', 'score'], -1];
+// Hard-veto flag written by applyScores — used by the emergency-access layer.
+const VETOED: any = ['coalesce', ['feature-state', 'vetoed'], false];
+// Closure-cluster size (≥3 = part of a multi-street group of recommended,
+// closeable streets). Drives the cyan cluster-outline layer.
+const CLUSTER_SIZE: any = ['coalesce', ['feature-state', 'clusterSize'], 0];
 
 
 /* ═══════════════════════════════════════
@@ -269,6 +277,10 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
 
   useImperativeHandle(ref, () => ({
     fitToPhiladelphia: () => { map.current?.flyTo({ center: [PHILADELPHIA_CENTER.longitude, PHILADELPHIA_CENTER.latitude], zoom: PHILADELPHIA_CENTER.zoom, duration: 1000 }); },
+    // Demo focus point — Sansom St between 34th and 35th, in front of Penn
+    // Carey Law (3400 block) and White Dog Cafe (3420). The pilot project's
+    // canonical example street.
+    flyToPennSansom: () => { map.current?.flyTo({ center: [-75.1928, 39.9534], zoom: 17.5, duration: 1200 }); },
   }));
 
   useEffect(injectCSS, []);
@@ -396,10 +408,30 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
 
     /* ── 1b. Street Score layers ── */
     if (!map.current.getLayer('street-score-glow')) {
+      // Closure-cluster outline — wide cyan halo drawn UNDER the score line
+      // for streets that belong to a multi-street group of closeable, ≥75
+      // recommendations. Signals "closing one of these implies coordinating
+      // the rest of the cluster" without overriding the underlying score
+      // color. Streets not in a cluster render at opacity 0.
+      map.current.addLayer({
+        id: 'street-cluster-outline', type: 'line', source: 'street-centerline',
+        'source-layer': 'Street_Centerline-46lvna', minzoom: 12,
+        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+        filter: ['any', ['>=', ['zoom'], 13.5], ['match', ['get', 'responsibl'], ['STATE'], true, false]],
+        paint: {
+          'line-color': '#06B6D4',
+          'line-width': ['interpolate',['linear'],['zoom'],12,4,14,8,18,14],
+          'line-opacity': ['case', ['>=', CLUSTER_SIZE, 3], 0.32, 0] as any,
+          'line-blur': 2,
+        },
+      });
+
       // Glow for high-scoring streets (>= 80). Mapbox GL disallows
       // feature-state expressions inside a layer filter, so the "score ≥ 80"
       // gate lives in `line-opacity` (which DOES accept feature-state) —
       // below-80 features render at opacity 0 and are effectively invisible.
+      // Vetoed streets also render at 0 — a vetoed street is not a candidate
+      // regardless of score, so it must not glow as "recommended".
       map.current.addLayer({
         id: 'street-score-glow', type: 'line', source: 'street-centerline',
         'source-layer': 'Street_Centerline-46lvna', minzoom: 12,
@@ -408,12 +440,19 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
         paint: {
           'line-color': '#10B981',
           'line-width': ['interpolate',['linear'],['zoom'],12,6,14,12,18,22],
-          'line-opacity': ['case', ['>=', SCORE_TOTAL, 80], 0.12, 0] as any,
+          'line-opacity': ['case',
+            ['==', VETOED, true], 0,
+            ['>=', SCORE_TOTAL, 80], 0.12,
+            0,
+          ] as any,
           'line-blur': 4,
         },
       });
 
-      // Main score lines — color by total score
+      // Main score lines — color by total score.
+      // When a street is vetoed (emergency access), the score is irrelevant,
+      // so this layer fades to 0 and the solid-red `street-veto-blocked`
+      // layer takes over. No stacking, no ambiguity.
       map.current.addLayer({
         id: 'street-score-lines', type: 'line', source: 'street-centerline',
         'source-layer': 'Street_Centerline-46lvna', minzoom: 12,
@@ -431,7 +470,26 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
             90, '#10B981',             // 90+    green
           ] as any,
           'line-width': ['interpolate',['linear'],['zoom'],12,1.5,14,3,18,5],
-          'line-opacity': 0.85,
+          'line-opacity': ['case', ['==', VETOED, true], 0, 0.85] as any,
+        },
+      });
+
+      // Hard veto: solid magenta replaces the score color entirely. Magenta
+      // sits OUTSIDE the score gradient (red→orange→yellow→green), so a
+      // vetoed street can never be confused with a low-score street that
+      // also paints red. Drawn slightly thicker than the score line for
+      // additional emphasis. The score-lines layer renders at opacity 0
+      // for these features, so this magenta is the ONLY color visible on
+      // emergency-access streets.
+      map.current.addLayer({
+        id: 'street-veto-blocked', type: 'line', source: 'street-centerline',
+        'source-layer': 'Street_Centerline-46lvna', minzoom: 12,
+        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+        filter: ['any', ['>=', ['zoom'], 13.5], ['match', ['get', 'responsibl'], ['STATE'], true, false]],
+        paint: {
+          'line-color': '#EC4899',
+          'line-width': ['interpolate',['linear'],['zoom'],12,2.2,14,4.2,18,6.5],
+          'line-opacity': ['case', ['==', VETOED, true], 0.95, 0] as any,
         },
       });
 
@@ -919,6 +977,33 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
 
       // 综合 FSI
       scores.total = computeCompositeTotal(scores.total, scores.aiScore, tMod, wMod, eMod, hMod);
+
+      // Pull emergency veto + cluster info from feature-state if applyScores
+      // has run; otherwise compute the emergency veto on-demand so the panel
+      // banner is always correct. (Cluster info requires viewport context, so
+      // it stays unset when the batch hasn't run yet.)
+      const safetyState = state as {
+        vetoReason?:  EmergencyAmenity | null;
+        vetoDist?:    number | null;
+        clusterSize?: number | null;
+      } | undefined;
+      if (safetyState?.vetoReason) {
+        scores.vetoReason    = safetyState.vetoReason;
+        scores.vetoDistanceM = safetyState.vetoDist ?? undefined;
+      } else {
+        const coordsForVeto = getFeatureCoords(feat);
+        if (coordsForVeto && allPOIsRef.current.length) {
+          const v = getEmergencyVeto(coordsForVeto, allPOIsRef.current);
+          if (v.vetoed) {
+            scores.vetoReason    = v.reason;
+            scores.vetoDistanceM = v.distanceM;
+          }
+        }
+      }
+      if (safetyState?.clusterSize != null) {
+        scores.clusterSize = safetyState.clusterSize;
+      }
+
       // Push the full state (total + sub-scores + anchor) so the line picks up
       // the new colour without waiting for the next idle, and subsequent hovers
       // keep reading the same numbers.
@@ -926,7 +1011,12 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
         void social; // legacy derived value; feature-state carries its components
         map.current?.setFeatureState(
           { source: 'street-centerline', sourceLayer: 'Street_Centerline-46lvna', id: fid },
-          { score: scores.total, commercial, community, mobility, fsiLat, fsiLng, edu: eduBreakdown },
+          {
+            score: scores.total, commercial, community, mobility, fsiLat, fsiLng, edu: eduBreakdown,
+            vetoed:     scores.vetoReason != null,
+            vetoReason: scores.vetoReason ?? null,
+            vetoDist:   scores.vetoDistanceM ?? null,
+          },
         );
         scoredObjectsRef.current.add(objectId);
       }
@@ -1015,12 +1105,18 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
         rawC:      number;
         rawCo:     number;
         rawM:      number;
+        vetoReason?: EmergencyAmenity; // emergency-services veto
+        vetoDist?:   number;
+        // Filled in during the score loop, then read by the post-batch
+        // cluster pass. Defaulted to -1 so unscored features are excluded.
+        score:     number;
       }
       const pois = allPOIsRef.current;
       const featureData: FeatureData[] = [];
       for (const [fid, { coords, props }] of byFid) {
         const objectId = props.objectid != null ? Number(props.objectid) : fid;
         const centroid = centroidOf(coords);
+        const veto     = getEmergencyVeto(coords, pois);
         featureData.push({
           fid,
           objectId,
@@ -1030,6 +1126,9 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
           rawC:  rawSumAlongStreet(coords, pois, 'commercial'),
           rawCo: rawSumAlongStreet(coords, pois, 'community'),
           rawM:  rawSumAlongStreet(coords, pois, 'mobility'),
+          vetoReason: veto.vetoed ? veto.reason : undefined,
+          vetoDist:   veto.vetoed ? veto.distanceM : undefined,
+          score: -1,
         });
       }
 
@@ -1112,6 +1211,7 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
           );
           const eduBreakdown = countEducationSubtypes(fd.coords, pois);
 
+          fd.score = score;
           map.current.setFeatureState(
             { source: 'street-centerline', sourceLayer: 'Street_Centerline-46lvna', id: fd.fid },
             {
@@ -1122,12 +1222,58 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
               fsiLat: lat,
               fsiLng: lng,
               edu:    eduBreakdown,
+              vetoed:        fd.vetoReason != null,
+              vetoReason:    fd.vetoReason ?? null,
+              vetoDist:      fd.vetoDist ?? null,
             },
           );
           scoredObjectsRef.current.add(fd.objectId);
         }
 
-        if (idx < featureData.length) requestAnimationFrame(processBatch);
+        if (idx < featureData.length) {
+          requestAnimationFrame(processBatch);
+        } else {
+          applyClusters();
+        }
+      }
+
+      // ── Post-batch cluster pass ─────────────────────────────────────
+      // Runs ONCE after every viewport feature has a final score. Groups
+      // closeable, ≥75-score, non-vetoed streets that share intersections,
+      // and writes the cluster size back to feature-state. The map's
+      // cluster-outline layer reacts via the CLUSTER_SIZE expression.
+      function applyClusters() {
+        if (!map.current) return;
+        if (scoreVersionRef.current !== version) return;
+
+        const candidates: ClusterCandidate[] = [];
+        // Also collect all viewport fids so we can clear stale cluster
+        // state on streets that USED to be in a cluster but no longer are.
+        const viewportFids: number[] = [];
+        for (const fd of featureData) {
+          viewportFids.push(fd.fid);
+          if (fd.score < 0) continue;
+          candidates.push({
+            fid:          fd.fid,
+            coords:       fd.coords,
+            score:        fd.score,
+            closeability: getCloseability(fd.props.responsibl ?? ''),
+            vetoed:       fd.vetoReason != null,
+          });
+        }
+
+        const { clusterByFid } = findClusters(candidates);
+
+        for (const fid of viewportFids) {
+          const info = clusterByFid.get(fid);
+          map.current.setFeatureState(
+            { source: 'street-centerline', sourceLayer: 'Street_Centerline-46lvna', id: fid },
+            {
+              clusterSize: info ? info.size : null,
+              clusterId:   info ? info.clusterId : null,
+            },
+          );
+        }
       }
 
       requestAnimationFrame(processBatch);
@@ -1159,7 +1305,7 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
   useEffect(() => {
     if (!map.current || !ready) return;
     const vis = showStreetScore ? 'visible' : 'none';
-    for (const lid of ['street-score-lines', 'street-score-glow', 'street-score-highlight']) {
+    for (const lid of ['street-score-lines', 'street-score-glow', 'street-score-highlight', 'street-veto-blocked', 'street-cluster-outline']) {
       if (map.current.getLayer(lid)) map.current.setLayoutProperty(lid, 'visibility', vis);
     }
     if (showStreetScore) {
@@ -1190,6 +1336,8 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
 
     if (map.current.getLayer('street-score-lines'))      map.current.setFilter('street-score-lines',      linesFilter);
     if (map.current.getLayer('street-centerline-lines')) map.current.setFilter('street-centerline-lines', linesFilter);
+    if (map.current.getLayer('street-veto-blocked'))     map.current.setFilter('street-veto-blocked',     linesFilter);
+    if (map.current.getLayer('street-cluster-outline'))  map.current.setFilter('street-cluster-outline',  linesFilter);
     if (map.current.getLayer('street-score-glow')) {
       // Feature-state can't go in filter; the ≥80 gate is enforced by the
       // `line-opacity` case expression in the glow layer's paint instead.

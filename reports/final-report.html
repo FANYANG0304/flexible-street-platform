@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Flexible Street Platform · 项目结项报告</title>
+<style>
+  @page {
+    size: A4;
+    margin: 22mm 20mm 22mm 20mm;
+    @bottom-center {
+      content: counter(page) " / " counter(pages);
+      font-size: 9pt;
+      color: #666;
+    }
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Hiragino Sans GB", "Source Han Sans CN", sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.75;
+    color: #1f2937;
+    background: #ffffff;
+  }
+
+  .cover {
+    page-break-after: always;
+    text-align: center;
+    padding-top: 90mm;
+  }
+  .cover .eyebrow {
+    color: #6366F1;
+    font-size: 12pt;
+    font-weight: 600;
+    letter-spacing: 6px;
+    margin-bottom: 12pt;
+  }
+  .cover h1 {
+    font-size: 30pt;
+    font-weight: 800;
+    color: #1f2937;
+    margin: 0 0 16pt 0;
+    line-height: 1.25;
+  }
+  .cover .subtitle {
+    font-size: 14pt;
+    color: #4b5563;
+    margin-bottom: 60pt;
+    font-weight: 400;
+  }
+  .cover .meta {
+    display: inline-block;
+    text-align: left;
+    font-size: 11pt;
+    color: #374151;
+    border-top: 2px solid #6366F1;
+    padding-top: 14pt;
+    margin-top: 30pt;
+  }
+  .cover .meta div { margin-bottom: 4pt; }
+  .cover .meta .label { color: #6b7280; display: inline-block; min-width: 90pt; }
+
+  h1.section {
+    font-size: 18pt;
+    color: #1f2937;
+    border-bottom: 3px solid #6366F1;
+    padding-bottom: 6pt;
+    margin: 28pt 0 14pt 0;
+    page-break-after: avoid;
+  }
+  h2 {
+    font-size: 14pt;
+    color: #1f2937;
+    margin: 20pt 0 8pt 0;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 12pt;
+    color: #374151;
+    margin: 14pt 0 6pt 0;
+    page-break-after: avoid;
+  }
+  h4 {
+    font-size: 11pt;
+    color: #4b5563;
+    margin: 10pt 0 4pt 0;
+    page-break-after: avoid;
+  }
+
+  p { margin: 0 0 8pt 0; text-align: justify; }
+  ul, ol { margin: 4pt 0 10pt 0; padding-left: 20pt; }
+  li { margin-bottom: 3pt; }
+
+  .lead {
+    font-size: 11pt;
+    color: #4b5563;
+    background: #f3f4f6;
+    border-left: 4px solid #6366F1;
+    padding: 10pt 14pt;
+    margin: 12pt 0;
+    border-radius: 0 4pt 4pt 0;
+  }
+
+  .callout {
+    background: #fef3c7;
+    border-left: 4px solid #F59E0B;
+    padding: 10pt 14pt;
+    margin: 12pt 0;
+    font-size: 10pt;
+    border-radius: 0 4pt 4pt 0;
+  }
+
+  .callout-info {
+    background: #eff6ff;
+    border-left: 4px solid #3B82F6;
+    padding: 10pt 14pt;
+    margin: 12pt 0;
+    font-size: 10pt;
+    border-radius: 0 4pt 4pt 0;
+  }
+
+  .callout-warn {
+    background: #fee2e2;
+    border-left: 4px solid #EF4444;
+    padding: 10pt 14pt;
+    margin: 12pt 0;
+    font-size: 10pt;
+    border-radius: 0 4pt 4pt 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10pt 0;
+    font-size: 10pt;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #d1d5db;
+    padding: 6pt 8pt;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #f3f4f6;
+    font-weight: 700;
+    color: #1f2937;
+  }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  code, .code {
+    font-family: "Consolas", "Monaco", "Source Code Pro", monospace;
+    font-size: 9.5pt;
+    background: #f3f4f6;
+    padding: 1pt 5pt;
+    border-radius: 3pt;
+    color: #be185d;
+  }
+  pre {
+    background: #1f2937;
+    color: #e5e7eb;
+    padding: 10pt 14pt;
+    border-radius: 4pt;
+    font-family: "Consolas", "Monaco", monospace;
+    font-size: 9pt;
+    line-height: 1.5;
+    overflow-x: auto;
+    page-break-inside: avoid;
+  }
+
+  .formula {
+    text-align: center;
+    background: #f9fafb;
+    border: 1px dashed #d1d5db;
+    padding: 8pt 12pt;
+    margin: 10pt 0;
+    font-style: italic;
+    font-size: 11pt;
+  }
+
+  .toc {
+    page-break-after: always;
+  }
+  .toc ol { padding-left: 20pt; }
+  .toc li { margin-bottom: 4pt; }
+  .toc a { color: #1f2937; text-decoration: none; }
+
+  .badge {
+    display: inline-block;
+    padding: 1pt 6pt;
+    border-radius: 10pt;
+    font-size: 8.5pt;
+    font-weight: 700;
+    margin-right: 4pt;
+  }
+  .badge-done    { background: #d1fae5; color: #065f46; }
+  .badge-partial { background: #fef3c7; color: #92400e; }
+  .badge-future  { background: #dbeafe; color: #1e40af; }
+
+  .section-anchor { page-break-before: always; }
+
+  hr {
+    border: none;
+    border-top: 1px solid #e5e7eb;
+    margin: 18pt 0;
+  }
+
+  .footnote {
+    font-size: 9pt;
+    color: #6b7280;
+    font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════ 封面 ════════ -->
+<div class="cover">
+  <div class="eyebrow">PROJECT FINAL REPORT</div>
+  <h1>Flexible Street Platform</h1>
+  <div class="subtitle">面向智能道路使用规划的数据驱动数字平台<br>项目结项报告</div>
+  <div class="meta">
+    <div><span class="label">项目编号：</span>#12 Flexible Street</div>
+    <div><span class="label">试点城市：</span>美国费城（Philadelphia, PA）</div>
+    <div><span class="label">合作机构：</span>Center City District (CCD)、University City District (UCD)</div>
+    <div><span class="label">报告日期：</span>2026 年 5 月</div>
+    <div><span class="label">技术栈：</span>React + TypeScript + Mapbox GL + Supabase + LLaVA</div>
+  </div>
+</div>
+
+<!-- ════════ 目录 ════════ -->
+<div class="toc">
+  <h1 class="section">目录</h1>
+  <ol>
+    <li><a href="#sec1">项目背景</a></li>
+    <li><a href="#sec2">项目目的与目标</a></li>
+    <li><a href="#sec3">方法与技术实现</a>
+      <ol>
+        <li>系统架构</li>
+        <li>FSI 评分模型</li>
+        <li>实时调节因子</li>
+        <li>AI 街景视觉感知</li>
+        <li>所有权与可关闭性</li>
+        <li>安全约束层</li>
+        <li>簇群协调检测</li>
+        <li>数据来源</li>
+      </ol>
+    </li>
+    <li><a href="#sec4">项目成果与结论</a></li>
+    <li><a href="#sec5">未来工作展望</a>
+      <ol>
+        <li>用户反馈机制</li>
+        <li>路网可达性与绕行成本分析</li>
+        <li>单行道识别</li>
+        <li>纵向数据采集与模型迭代</li>
+        <li>多城市推广</li>
+        <li>多模式平衡与无障碍</li>
+      </ol>
+    </li>
+    <li><a href="#sec6">致谢</a></li>
+  </ol>
+</div>
+
+<!-- ════════ 1. 背景 ════════ -->
+<h1 id="sec1" class="section">1. 项目背景</h1>
+
+<p>城市街道平均占据城市建成区面积的 <strong>30% 左右</strong>，但这些公共空间长期被锁定在"以机动车为中心"的单一用途上。随着城市可持续发展、行人友好、公共健康、社区凝聚力等议题在世界范围内成为城市更新的核心议程，越来越多的城市开始尝试将街道空间在特定时段、特定情境下临时让渡给行人、休闲、商业摊位、文化活动等非机动车使用。</p>
+
+<p>典型实践包括美国多个城市的 <strong>Open Streets / Slow Streets</strong> 计划、费城的 <strong>Playstreets</strong> 暑期儿童游戏街、纽约 SoHo 周末步行街、巴黎的 <strong>Rue aux écoles</strong>（校门步行街）等。这些项目共同指向一个核心理念：街道应当是<strong>动态的、可被重新分配的公共资产</strong>，而不是一成不变的基础设施。</p>
+
+<p>然而，目前城市规划部门在做这类决策时，普遍依赖以下几种方式：</p>
+<ul>
+  <li><strong>经验判断</strong>：靠规划师或社区组织者的直觉选街道，缺乏量化依据；</li>
+  <li><strong>申请驱动</strong>：等社区主动提交申请，无法主动识别潜力街段；</li>
+  <li><strong>事后评估</strong>：项目落地后才用人工调查或交通量数据评估效果，难以提前预测影响。</li>
+</ul>
+
+<p>这种模式带来三个问题：</p>
+<ol>
+  <li>潜力街道被忽略——很多本应成为优秀候选的街道因为没人关注而错过机会；</li>
+  <li>资源分配低效——有限的封街许可、人员、设施往往分配给申请最积极的社区，而非最适合的地点；</li>
+  <li>风险评估缺失——不少临时关闭后才发现影响了急救通道、瘫痪了当地交通，造成不必要的争议。</li>
+</ol>
+
+<div class="callout">
+<strong>核心痛点：</strong>城市需要一套<strong>事前的、数据驱动的、可解释的</strong>工具，帮助决策者在数千条候选街道中识别"何时、何地、为何"可以临时灵活使用。这正是本项目要解决的问题。</div>
+
+<!-- ════════ 2. 目的 ════════ -->
+<h1 id="sec2" class="section">2. 项目目的与目标</h1>
+
+<div class="lead">
+本项目立项之初的核心目标，是构建一个<strong>面向城市规划者、社区组织和公民利益方</strong>的数字平台，将街道从静态基础设施重新定义为"承载市民生活的活态框架"，使街道空间能够<strong>响应时间、情境与社区需求</strong>动态调整。
+</div>
+
+<h2>2.1 总体目标</h2>
+<p>建立一个名为 <strong>Flexible Street Platform</strong> 的数据驱动评分与决策辅助系统，使城市能够：</p>
+<ul>
+  <li>识别每条街道在不同时段的<strong>灵活使用潜力</strong>（Flexibility Potential）；</li>
+  <li>推荐<strong>Flex Window</strong>——具体的、可落地的临时空间重分配时段；</li>
+  <li>整合多源数据（POI 密度、交通模式、天气、活动、节日、视觉感知）形成单一可解释的指标；</li>
+  <li>向规划者、社区组织、公众分别提供<strong>差异化的可视化与解释</strong>。</li>
+</ul>
+
+<h2>2.2 核心概念：Street Anchor（街道锚点）</h2>
+<p>项目的理论基础是"街道锚点"：那些<strong>可预测地产生人流和社交活动</strong>的设施——学校、社区中心、图书馆、热门餐饮、交通枢纽、文化机构等。锚点决定了街道在不同时段的"节奏"——学校放学时校门口街道应该让渡给步行接送；周末市集启动时商业街应转为步行优先；夜间文化活动开始时餐饮街应延伸至室外。</p>
+
+<p>平台的根本任务，就是<strong>识别这些锚点的影响范围与时间窗口</strong>，并据此推荐 Flex Window。</p>
+
+<h2>2.3 具体可交付目标</h2>
+<table>
+<thead>
+<tr><th>目标</th><th>状态</th><th>说明</th></tr>
+</thead>
+<tbody>
+<tr><td>多维度 FSI 评分系统</td><td><span class="badge badge-done">已完成</span></td><td>商业、社区、交通三维度，sigmoid 饱和归一化</td></tr>
+<tr><td>实时调节因子集成</td><td><span class="badge badge-done">已完成</span></td><td>交通、天气、活动、节日 4 类乘性修正</td></tr>
+<tr><td>AI 视觉感知补强</td><td><span class="badge badge-done">已完成</span></td><td>LLaVA 7B 模型分析 Google 街景</td></tr>
+<tr><td>所有权与可关闭性识别</td><td><span class="badge badge-done">已完成</span></td><td>14 类 agency 分级 + 灰度标识</td></tr>
+<tr><td>紧急通道安全约束</td><td><span class="badge badge-done">已完成</span></td><td>医院 / 消防 / 警察 buffer 一票否决</td></tr>
+<tr><td>簇群协调检测</td><td><span class="badge badge-done">已完成</span></td><td>≥3 条相连高分街道自动识别</td></tr>
+<tr><td>试点区域可视化</td><td><span class="badge badge-done">已完成</span></td><td>Center City + West Philadelphia 两个 study zone</td></tr>
+<tr><td>Playstreets 验证集校准</td><td><span class="badge badge-done">已完成</span></td><td>用费城暑期游戏街作 ground truth</td></tr>
+<tr><td>详情面板与因子解释</td><td><span class="badge badge-done">已完成</span></td><td>"Why this score?" 因子可点开</td></tr>
+<tr><td>用户反馈通道</td><td><span class="badge badge-future">未来工作</span></td><td>详见 §5.1</td></tr>
+<tr><td>路网拓扑 / 绕行成本</td><td><span class="badge badge-future">未来工作</span></td><td>详见 §5.2</td></tr>
+<tr><td>单行道识别</td><td><span class="badge badge-future">未来工作</span></td><td>详见 §5.3</td></tr>
+</tbody>
+</table>
+
+<!-- ════════ 3. 方法 ════════ -->
+<h1 id="sec3" class="section">3. 方法与技术实现</h1>
+
+<h2>3.1 系统架构</h2>
+
+<p>平台采用<strong>前后端分离 + 边缘预计算</strong>的轻量架构：</p>
+
+<table>
+<thead><tr><th>层次</th><th>技术选型</th><th>职责</th></tr></thead>
+<tbody>
+<tr><td>前端 UI</td><td>React 18 + TypeScript 5.6 + Vite 5.4 + Tailwind CSS</td><td>地图渲染、面板交互、可视化</td></tr>
+<tr><td>地图引擎</td><td>Mapbox GL JS 3.7 + 自定义矢量瓦片</td><td>街道、POI、活动叠加层</td></tr>
+<tr><td>评分计算</td><td>客户端 TypeScript 实时计算</td><td>FSI 评分、安全约束、簇群检测</td></tr>
+<tr><td>数据库</td><td>Supabase (PostgreSQL + PostGIS) + RPC 边界查询</td><td>POI、AI 分数、活动、Playstreets</td></tr>
+<tr><td>AI 模块</td><td>LLaVA 7B（离线预跑，结果存表）</td><td>街景图像感知评分 + 关键词</td></tr>
+<tr><td>外部 API</td><td>Open-Meteo（天气）、Ticketmaster（活动）、Google Street View Static</td><td>实时上下文数据</td></tr>
+<tr><td>部署</td><td>GitHub Actions + Vercel-style 静态托管</td><td>CI/CD、零运维</td></tr>
+</tbody>
+</table>
+
+<p>所有评分逻辑都在<strong>浏览器端实时计算</strong>，不依赖服务器算力。这一选择让系统能够：</p>
+<ul>
+  <li>支持任意 POI 加载量与街道密度，无 backend rate limit；</li>
+  <li>用户切换时段、天气情境时分数即时刷新（&lt;100ms）；</li>
+  <li>所有规则可审计、可解释——每条街的最终分数都能完整反推。</li>
+</ul>
+
+<h2>3.2 FSI 评分模型（Flexibility Score Index）</h2>
+
+<p>FSI 是平台的核心算法，用以量化每条街道在当前情境下的"灵活使用潜力"。它以<strong>沿街 POI 密度</strong>为基础，按"垂直走廊衰减模型"计算各类别原始得分，经 sigmoid 归一化后输出 0-100 的分数。</p>
+
+<h3>3.2.1 两个评分维度</h3>
+<p>综合分仅由以下<strong>两个</strong>维度构成：</p>
+<table>
+<thead><tr><th>维度</th><th>覆盖类别</th><th>走廊宽度</th><th>含义</th></tr></thead>
+<tbody>
+<tr><td><strong>Commercial</strong></td><td>餐饮 + 文化 + 金融</td><td>35 m</td><td>商业活力——餐厅、咖啡馆、银行、剧院、画廊等沿街商业 POI 越密集，越适合商业型 Flex（夜间餐饮街、周末市集等）</td></tr>
+<tr><td><strong>Community</strong></td><td>教育 + 社区 + 宗教 + 公共安全 + 医疗</td><td>150 m</td><td>社区机构密度——学校、社区中心、教堂、图书馆等。走廊更宽，因为机构两个街区外仍能产生人流</td></tr>
+</tbody>
+</table>
+
+<h3>3.2.2 信息辅助标签：Mobility（不参与评分）</h3>
+<p>除上述两个评分维度外，平台还会单独计算并展示一个 <strong>Mobility</strong> 标签——基于 SEPTA 公交 / 地铁 / 通勤铁路站点在 80 m 走廊内的密度。它<strong>有意被排除在综合分之外</strong>，原因是：好的交通可达性是举办 Flex 活动的<em>先决条件</em>（让参与者能到场），但这一点本身并不构成"应当关闭这条街"的理由。把它单独以标签形式呈现，让规划者在选定高分街段后可以进一步判断"这条候选街是否便于公众抵达"，但不会让"附近有地铁站"这一事实人为推高一条无活动潜力街道的分数。</p>
+
+<h3>3.2.3 计算公式</h3>
+<div class="formula">
+raw = Σ exp( −d<sub>perp</sub> / DECAY ) &nbsp;&nbsp;&nbsp; (落入走廊内的所有 POI)<br>
+score = 100 × ( 1 − exp( −raw / saturation ) ) &nbsp;&nbsp;&nbsp; (sigmoid 归一化到 0-100)<br>
+composite = max(commercial, community) &nbsp;&nbsp;&nbsp; (mobility 不参与)
+</div>
+
+<p>关键设计：</p>
+<ul>
+  <li><strong>距离衰减</strong>：远离街道的 POI 权重指数下降，避免对侧街区的 POI 误判贡献；</li>
+  <li><strong>Sigmoid 饱和</strong>：避免"POI 越多分越高"的线性失真——5 家餐厅 vs 50 家餐厅在街道使用价值上接近，但线性求和会让后者拿到 10 倍分数；</li>
+  <li><strong>取最大而非求和</strong>：商业型与社区型本质是<strong>不同活动模式</strong>，一条街只需要在一种维度上突出即可，不应靠"两边都中等"叠出高分。</li>
+</ul>
+
+<h3>3.2.4 局部突出度奖励（Prominence Bonus）</h3>
+<p>除了绝对密度，平台还引入<strong>邻域比较奖励</strong>：在 ~440m 邻域内，若某条街的原始 POI 求和显著高于邻居中位数，给予最多 +10 分的"局部领头"奖励。这避免了 POI 稀疏区域的"小高峰街道"被淹没——例如西费城的某条主商业街，POI 总数虽不及市中心，但已是周边唯一的活动汇聚点，理应被推荐。</p>
+
+<h3>3.2.5 校准方法</h3>
+<p>所有饱和参数都通过<strong>反向拟合费城 Playstreets 数据集</strong>得到。Playstreets 是费城官方暑期儿童游戏街计划的真实历史数据，作为"已被验证可灵活使用"的正例。校准目标：让 50%-75% 的 Playstreets 街道在工作时段下能拿到 ≥75 分。校准工具内置在 <code>src/lib/fsiCalibrate.ts</code>，可在控制台输出当前参数对应的 P50 / P75 分布。</p>
+
+<h2>3.3 实时调节因子</h2>
+
+<p>FSI 基础分代表"理论潜力"，但实际是否适合现在关闭，还取决于当下情境。平台引入 4 类乘性修正：</p>
+
+<table>
+<thead><tr><th>因子</th><th>取值范围</th><th>逻辑</th></tr></thead>
+<tbody>
+<tr><td>Traffic（交通）</td><td>0.50 – 1.0</td><td>按道路类型（highway/arterial/collector/local）× 时段（早/午/晚/夜）查表。高速路在早高峰 ×0.50，背街小巷在夜间 ×1.0</td></tr>
+<tr><td>Weather（天气）</td><td>0.20 – 1.0</td><td>Open-Meteo WMO 天气码映射。晴朗 ×1.0，小雨 ×0.7，雷雨 / 大雪 ×0.2</td></tr>
+<tr><td>Events（附近活动）</td><td>1.0 – 1.20</td><td>Ticketmaster 拉取季节性活动（游行、节日、马拉松），300m 内 ×1.20，1km 内 ×1.10，2.5km 内 ×1.04</td></tr>
+<tr><td>Holiday（节日）</td><td>1.0 – 1.25</td><td>费城本地节日日历——Mummers Parade、感恩节、Penn Relays 等当日全城加成</td></tr>
+</tbody>
+</table>
+
+<div class="formula">
+final = composite × traffic × weather × events × holiday
+</div>
+
+<p>这种<strong>独立可解释</strong>的乘性结构，使得详情面板能完整列出"为什么这条街今天得分变高/变低"——交通拥堵 ×0.65 给一个橙色提示，附近马拉松 ×1.18 给一个绿色加成。</p>
+
+<h2>3.4 AI 街景视觉感知</h2>
+
+<p>除 POI 密度外，平台还集成<strong>视觉感知维度</strong>。我们使用 <strong>LLaVA 7B 多模态视觉语言模型</strong>，对每条已分析街道的 Google Street View 图像进行：</p>
+<ol>
+  <li><strong>0-100 sensory score</strong>——综合判断该街道的"宜步性"；</li>
+  <li><strong>3-5 个关键词标签</strong>——例如 <em>"vibrant"</em>、<em>"residential quiet"</em>、<em>"transit-heavy"</em>，作为详情面板的语义标签。</li>
+</ol>
+
+<p>AI 分数与 POI 分数的融合策略：</p>
+<div class="formula">
+ML × 0.6 + AI × 0.4 &nbsp;(若该街道有 AI 分析结果)<br>
+ML 单独 &nbsp;(无 AI 时回退)
+</div>
+
+<p>AI 分数<strong>离线预跑</strong>后存入 Supabase 的 <code>street_ai_scores</code> 表，运行时按需分页加载（1000 条/批），避免实时模型调用的高成本与延迟。</p>
+
+<h2>3.5 所有权与可关闭性</h2>
+
+<p>同样的 POI 密度，城市能否真的关闭这条街还取决于产权归属。平台基于费城街道中心线数据集的 <code>responsibl</code> 属性识别 14 类 agency，归并为三档：</p>
+
+<table>
+<thead><tr><th>档位</th><th>包含 agency</th><th>说明</th></tr></thead>
+<tbody>
+<tr><td>City-managed · 可直接关闭</td><td>CITY, FAIRMOUNT PARK, PHA, PIDC, FAM</td><td>市政府权限，无需跨机构审批</td></tr>
+<tr><td>需机构审批</td><td>SEPTA, DRPA, BCBC, TOWNSHIP</td><td>跨机构协调，时间成本但非否决</td></tr>
+<tr><td>不可关闭</td><td>STATE, PRIVATE, AIRPORT, STRICKEN 等</td><td>评分照常计算，但 UI 标灰提示</td></tr>
+</tbody>
+</table>
+
+<p>注意：<strong>所有权不进入分数</strong>，只作为"可执行性"独立标签呈现。两条潜力相同的街道得分相同，但 UI 会清楚指明哪条可以立刻封闭，哪条需要走 SEPTA 审批。</p>
+
+<h2>3.6 安全约束层（紧急通道一票否决）</h2>
+
+<p>在试点过程中我们意识到，一个潜力分数再高的街道，如果是医院或消防站门口的必经之路，就<strong>绝不能</strong>被推荐关闭。为此引入一个独立的安全约束层：</p>
+
+<table>
+<thead><tr><th>设施类型</th><th>OSM amenity tag</th><th>缓冲距离</th><th>语义</th></tr></thead>
+<tbody>
+<tr><td>医院</td><td><code>hospital</code></td><td>150 m</td><td>救护车进出 + 急诊通道</td></tr>
+<tr><td>消防站</td><td><code>fire_station</code></td><td>90 m</td><td>消防车出动通道</td></tr>
+<tr><td>警察局</td><td><code>police</code></td><td>70 m</td><td>警车出动通道</td></tr>
+</tbody>
+</table>
+
+<p>实现逻辑：对每条街道，遍历 POI 中的紧急设施，计算"街道中线到设施"的<strong>垂直最短距离</strong>；若任一设施距离小于该类阈值，整条街标记为 <code>vetoed=true</code>。</p>
+
+<p>UI 表现：</p>
+<ul>
+  <li>地图：被否决街道渲染为<strong>纯品红色</strong>（<code>#EC4899</code>），刻意选在 FSI 分数色谱（红→橙→黄→绿）之外，不会与"低分红"混淆；</li>
+  <li>详情面板：粉红色 Siren 图标横幅，标注"Cannot close · emergency access route"+ 设施类型 + 实际距离；</li>
+  <li>图例：在 "Closure Constraints" 区块独立列出。</li>
+</ul>
+
+<div class="callout-info">
+<strong>设计哲学：</strong>该约束<strong>不参与</strong>分数计算（理论潜力照常评出），而是作为"覆盖层"独立呈现。这样既保留了原始数据，也清晰传达了"高潜力 ≠ 可关闭"这一核心区分。</div>
+
+<h2>3.7 簇群协调检测（Closure Cluster Detection）</h2>
+
+<p>项目后期我们识别出一个更微妙的风险：单条街道关闭通常不会瘫痪城市路网（网格冗余足够），但<strong>多条相邻的高分街道同时关闭</strong>，可能造成局部网络断裂。例如同时关掉 Walnut、Chestnut、Sansom、Spruce 4 条平行街，整个 Penn 校园南北向通道将塌陷。</p>
+
+<p>为此实现 <code>findClusters()</code> 函数——基于<strong>共享路口的并查集（Union-Find）算法</strong>：</p>
+
+<ol>
+  <li>筛选候选：score ≥ 75 + closeable + 未被紧急通道否决；</li>
+  <li>建立空间哈希：所有街道端点按 35m 网格分桶；</li>
+  <li>合并：对相邻桶内端点距离 ≤ 35m 的两条街执行 union；</li>
+  <li>分组：连通分量 ≥ 3 条街，标记为"closure cluster"。</li>
+</ol>
+
+<p>UI 表现：簇成员街道在 FSI 颜色下方叠加<strong>青色光晕</strong>（<code>#06B6D4</code>，opacity 0.32, blur 2），既不抢夺分数颜色又能一眼识别簇范围。详情面板显示 <em>"Coordinate group · N streets"</em> 徽章并解释含义。算法复杂度近似线性，对视口内任意街道密度都流畅。</p>
+
+<h2>3.8 数据来源汇总</h2>
+
+<table>
+<thead><tr><th>数据集</th><th>来源</th><th>更新方式</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td>街道中线</td><td>Mapbox 矢量瓦片（费城 Open Data 重处理）</td><td>静态发布</td><td>地图基础几何 + agency 属性</td></tr>
+<tr><td>POI</td><td>Supabase <code>poi</code> 表（OSM 抽取）</td><td>RPC 边界查询</td><td>FSI 评分 + 紧急通道识别</td></tr>
+<tr><td>AI 街景分数</td><td>Supabase <code>street_ai_scores</code> 表</td><td>离线 LLaVA 预跑</td><td>视觉感知维度</td></tr>
+<tr><td>Playstreets 验证集</td><td>Supabase 表（费城官方游戏街数据）</td><td>季节性更新</td><td>FSI 校准 ground truth</td></tr>
+<tr><td>Open Streets 活动</td><td>Supabase 表（Center City 2026 计划）</td><td>事件驱动</td><td>活动叠加层</td></tr>
+<tr><td>实时天气</td><td>Open-Meteo API</td><td>实时拉取，无需 key</td><td>weather 调节因子</td></tr>
+<tr><td>季节性活动</td><td>Ticketmaster Discovery API</td><td>实时拉取（需 key）</td><td>events 调节因子</td></tr>
+<tr><td>节日日历</td><td>本地常量（费城特色节日）</td><td>年度更新</td><td>holiday 调节因子</td></tr>
+<tr><td>街景图像</td><td>Google Street View Static API</td><td>实时拉取（需 key）</td><td>详情面板 + AI 输入</td></tr>
+</tbody>
+</table>
+
+<!-- ════════ 4. 结论 ════════ -->
+<h1 id="sec4" class="section">4. 项目成果与结论</h1>
+
+<h2>4.1 完成度评估</h2>
+
+<p>项目在<strong>核心功能层面已完整交付</strong>立项目标，并在试点过程中迭代出若干立项时未明确预期的关键能力。具体成果包括：</p>
+
+<ol>
+  <li><strong>建立了一套可解释的多维 FSI 评分体系</strong>。综合分由 commercial 与 community 两个评分维度构成（取最大值），mobility 作为附加信息标签独立呈现。所有维度均经 sigmoid 饱和归一化与邻域突出度奖励，输出 0-100 分数。计算全部在客户端实时完成，毫秒级响应。</li>
+
+  <li><strong>融合了实时上下文调节</strong>。交通、天气、活动、节日 4 类因子以乘性方式叠加在基础分之上，使同一条街在不同时段、不同天气、不同社会事件下产生不同推荐——这恰恰是立项时强调的"adaptable to time, context, and community needs"的核心实现。</li>
+
+  <li><strong>引入了 AI 视觉感知补强</strong>。LLaVA 7B 模型对 Google Street View 图像的离线分析，让评分不仅看"街上有什么 POI"，还能看"街道实际看起来怎么样"——是密集商业、是安静住宅、是过境通道。两种数据源以 6:4 加权融合。</li>
+
+  <li><strong>明确区分了"潜力"与"可执行性"</strong>。所有权 / 可关闭性独立呈现，不污染分数；紧急通道一票否决独立呈现，不污染分数；簇群协调提示独立呈现，不污染分数。这使得平台输出的每个数字都有清晰单一的语义。</li>
+
+  <li><strong>建立了基于真实数据的校准闭环</strong>。所有饱和参数通过反向拟合费城 Playstreets 历史数据得到，让模型"对得上"已被城市实践验证过的优秀候选。</li>
+
+  <li><strong>提供了三层可视化与交互</strong>：地图全局色块 + 簇群光晕 + 紧急否决标识 → 街道详情面板（分数、子分数、AI 标签、影响因子、可关闭性）→ 因子点击展开解释。从城市级俯视到单街道决策都有对应视图。</li>
+</ol>
+
+<h2>4.2 关键设计决策的反思</h2>
+
+<h3>取最大而非求和的综合分</h3>
+<p>这是反直觉的——直觉上"商业 + 社区"双高的街道应该最有价值。但实践校准发现，街道使用模式具有<strong>排他性</strong>：商业型 Flex 与社区型 Flex 是两套截然不同的活动剧本（夜间餐饮街 vs 校门接送步行街），强行叠加会让"两边中等"街道淹没真正"一边突出"的街道。最终采用 <code>max(commercial, community)</code>。</p>
+
+<h3>所有权不进入分数</h3>
+<p>立项早期讨论过"私有街道直接给 0 分"，但执行下来发现这破坏了模型的可比较性——同一条物理潜力的街道在不同所有权下应得到相同的活动价值评分，所有权变化只影响"能不能落地"，不影响"该不该考虑"。最终采用"分数照算 + 标识独立显示"。</p>
+
+<h3>簇群作为协调提示而非否决</h3>
+<p>簇群检测最初考虑设为"扣分"，但反复推演发现：簇群本身不是坏事——它意味着这一带都适合 Flex，而非簇内任何单条街应该被排除。真正需要的是<strong>提示决策者"这是个集团动作"</strong>——单关一条 OK，要关多条得统一规划。最终采用青色光晕 + 解释横幅，<strong>信息透明而不阻断决策</strong>。</p>
+
+<h2>4.3 局限与诚实陈述</h2>
+
+<div class="callout-warn">
+<strong>项目刻意未解决的问题，记录在此供后续工作参考：</strong>
+<ul>
+  <li><strong>路网拓扑感知缺失</strong>：单条街关闭后车辆能否绕行、需绕多远，平台无法判断。详见 §5.2。</li>
+  <li><strong>单行道未识别</strong>：当前矢量瓦片不含 <code>oneway</code> 属性，单行道关闭的影响被低估。详见 §5.3。</li>
+  <li><strong>无用户反馈通道</strong>：当地工作人员无法直接在平台上指出"这里平台错了"。详见 §5.1。</li>
+  <li><strong>无纵向数据</strong>：每次刷新都是当下快照，无法追溯一条街道在过去 3 个月的评分趋势。</li>
+  <li><strong>仅限单城市</strong>：硬编码费城坐标和数据源，多城市推广需要数据接入层抽象。</li>
+</ul>
+</div>
+
+<!-- ════════ 5. 展望 ════════ -->
+<h1 id="sec5" class="section">5. 未来工作展望</h1>
+
+<p>基于当前已交付的功能集与试点反馈，下面五个方向被识别为最具价值的后续研发投入。按"价值 × 可行性"综合排序。</p>
+
+<h2>5.1 用户反馈机制（Citizen / Operator Feedback Loop）</h2>
+
+<div class="lead">
+当前平台是"单向输出"——算法推荐什么，使用者只能接受或忽视。但实际场景中，<strong>当地机构工作人员往往掌握平台无法捕捉的实地信息</strong>：某家算法标记为"hospital"的设施实际上已迁址三年；某条算法识别为高分的街道两侧正在施工根本无法关闭；某次推荐忽略了周边居民近期的强烈反对。
+</div>
+
+<h3>设计设想</h3>
+<ol>
+  <li><strong>反馈入口</strong>：在每条街道的详情面板增加 <em>"Feedback / Report Issue"</em> 按钮；</li>
+  <li><strong>反馈类型分类</strong>：
+    <ul>
+      <li>分数偏差（"实际不像 80 分这么好"/"被低估"）</li>
+      <li>POI 错误（"这家店已关门"/"漏标了一所学校"）</li>
+      <li>紧急通道误判（"这里其实是急救必经之路"/"这家不是真正的医院"）</li>
+      <li>活动 / 节日漏标</li>
+      <li>所有权错误</li>
+      <li>其他自由文本</li>
+    </ul>
+  </li>
+  <li><strong>持久化</strong>：Supabase 新增 <code>street_feedback</code> 表（街道 ID、反馈类型、文本、提交者邮箱、时间戳、状态）；</li>
+  <li><strong>审核与回路</strong>：管理员后台每周 review 一次，确认有效后：
+    <ul>
+      <li>分数偏差 → 加入 calibration 数据集，下次重新拟合饱和参数；</li>
+      <li>POI 错误 → 推送给 OSM 编辑社区或直接修正 Supabase POI 表；</li>
+      <li>紧急通道误判 → 调整 amenity 标记或局部 buffer。</li>
+    </ul>
+  </li>
+  <li><strong>透明度</strong>：在街道详情面板下方展示"过去收到 N 条反馈"，已处理 / 待处理状态可见，建立公众信任。</li>
+</ol>
+
+<h3>价值</h3>
+<p>这一机制将平台从"专家工具"转变为<strong>众包验证的协作系统</strong>，长期能形成"算法预测 → 实地验证 → 模型迭代"的健康反馈闭环，是数据驱动城市治理的关键环节。</p>
+
+<h2>5.2 路网可达性与绕行成本分析（最关键的未来工作）</h2>
+
+<div class="callout-warn">
+<strong>典型场景：</strong>假设算法推荐关闭 34th Street（Penn 校园主干道）作为周末步行活动场地。这条街本身得分很高，紧急通道判断也通过——但它<strong>恰好是周边居民通往 Penn Presbyterian Medical Center（宾大医院）的最短驾车路径</strong>。一旦关闭，急诊车辆需绕行 6 个街区、增加 8-12 分钟车程。在心梗、中风等黄金时间敏感的医疗场景下，这种延误可能<strong>直接危及生命</strong>。
+</div>
+
+<p>当前平台无法察觉这种风险，因为紧急通道判断仅基于"街道距设施的直线距离"，而非"街道是否在通往设施的最短路径上"。这是<strong>纯几何检查 vs 网络拓扑分析</strong>的本质差异。</p>
+
+<h3>技术路径（按工程复杂度排序）</h3>
+
+<h4>方案 A：静态预计算（推荐先做）</h4>
+<ol>
+  <li>从 OpenStreetMap 抓取费城完整路网（含单行道方向）；</li>
+  <li>用 Python 的 <code>OSMnx</code> + <code>NetworkX</code> 构建有向图；</li>
+  <li>对每条边离线计算 <strong>edge betweenness centrality</strong>——衡量"该街道有多少最短路径要经过"；</li>
+  <li>额外计算"关键医院 / 消防站可达性指标"——以每个紧急设施为终点，计算各街道是否在 N% 的最短路径中；</li>
+  <li>将结果作为 <code>criticality_score</code> 列存入 Supabase 街道表；</li>
+  <li>客户端读取该列，criticality 高者：① 进入综合分作为 <code>networkMod</code> 折扣；② 详情面板显示"此街道是 X 个紧急设施的关键路径"。</li>
+</ol>
+<p><strong>优点</strong>：一次性预计算，运行时零开销，结果稳定可解释。<strong>缺点</strong>：路网或紧急设施变动需重新预跑。</p>
+
+<h4>方案 B：动态查询（推荐配合 A 做精细化）</h4>
+<ol>
+  <li>用户点击某条街表示"想模拟关闭"；</li>
+  <li>调用 Mapbox Directions API 或 OSRM，请求"以该街道为禁行边"的最短路径；</li>
+  <li>对比"原始最短路径"与"绕行最短路径"的距离 / 时长比；</li>
+  <li>若比值 &gt; 1.5（绕行超过原路 50%）→ 详情面板红色警示"Closing this would extend ambulance routes by N%";</li>
+  <li>对所有附近紧急设施做该计算，列出"对哪些设施影响最大"。</li>
+</ol>
+<p><strong>优点</strong>：精确、所见即所得。<strong>缺点</strong>：API 成本（Mapbox 按调用收费）+ 延迟。</p>
+
+<h4>方案 C：多街道联合关闭模拟</h4>
+<p>结合 §3.7 的簇群检测，进一步分析"如果整个簇被关闭"对路网的累积影响。这是 Flex Window 真正落地为成片活动时（例如开幕式式的多街道集中封闭）的关键决策辅助。</p>
+
+<h3>价值</h3>
+<p>解决这个问题，平台才能从"推荐什么街道适合 Flex"升级为"在保障公共安全前提下推荐什么时间什么街道适合 Flex"——后者才是城市规划部门真正可以信赖的决策依据。</p>
+
+<h2>5.3 单行道识别</h2>
+
+<p>当前 Mapbox 矢量瓦片仅含 <code>stname</code>、<code>responsibl</code>、<code>objectid</code>，没有方向性属性。但<strong>单行街关闭的影响远大于双向街</strong>：</p>
+<ul>
+  <li>双向街关闭 → 车辆原地反向绕行，影响小；</li>
+  <li>单行街关闭 → 车辆无法掉头，必须绕到下一条同向街，可能多走 2-4 个街区。</li>
+</ul>
+
+<h3>实现路径</h3>
+<p>编写一次性 Python ETL 脚本，从 OpenStreetMap Overpass API 拉取费城所有 <code>oneway=yes</code> 街道，按几何重叠匹配到现有 Mapbox 街道的 <code>objectid</code>，新增 <code>is_oneway</code> 列灌入 Supabase。客户端按需读取，单行道在详情面板显示"⚠ 单行街——封闭影响周边 2-4 街区车流"。</p>
+
+<p>这个增强可独立于 §5.2 完成，工作量较小但价值明显。</p>
+
+<h2>5.4 纵向数据采集与模型迭代</h2>
+
+<p>当前平台输出的是<strong>当下快照</strong>。无法回答以下关键问题：</p>
+<ul>
+  <li>"这条街上周末分数是多少？" — 无历史；</li>
+  <li>"上次推荐关闭这条街，实际效果如何？" — 无追溯；</li>
+  <li>"哪些街道在最近 6 个月持续被推荐但从未被采纳？" — 无趋势分析。</li>
+</ul>
+
+<h3>建议</h3>
+<ol>
+  <li><strong>定时快照</strong>：每日凌晨自动遍历全城街道，将当日 FSI 与所有调节因子持久化到 <code>fsi_history</code> 表；</li>
+  <li><strong>试点区传感器</strong>：在 Center City 与 West Philadelphia 的部分街道部署低成本人流计数器（OpenCount 之类的开源方案）或与现有市政摄像头集成，记录 Flex Window 前后实际人流 / 车流变化；</li>
+  <li><strong>评估对照</strong>：将传感器实测数据与 FSI 预测值做相关性分析，识别"算法持续高估 / 低估"的街道类型，据此迭代模型权重；</li>
+  <li><strong>趋势可视化</strong>：详情面板增加 90 天分数曲线图，让规划者识别"这条街是稳定高分还是季节性突涨"。</li>
+</ol>
+
+<h2>5.5 多城市推广</h2>
+
+<p>当前实现深度依赖费城特定数据源（<code>responsibl</code> agency 命名、Playstreets 数据集、本地节日日历）。要推广到其他城市，需做：</p>
+<ol>
+  <li><strong>数据接入层抽象</strong>：将"街道几何 / POI / 验证集 / 节日"封装为可替换的 provider 接口；</li>
+  <li><strong>城市配置档</strong>：每个新城市建立配置文件，指定 Mapbox 瓦片 URL、Supabase 表、节日列表、agency 命名映射；</li>
+  <li><strong>本地化校准</strong>：每个城市需用其本地"已验证 Flex 街道"做一次 saturation 重新拟合；</li>
+  <li><strong>多语言 UI</strong>：当前 UI 字符串硬编码为英文，需要 i18n 抽取。</li>
+</ol>
+
+<p>建议先与一两个具体城市（例如纽约或波士顿）合作，在第一次推广中固化抽象层，然后才能规模化接入更多城市。</p>
+
+<h2>5.6 多模式平衡与无障碍</h2>
+
+<p>当前平台关注的是"机动车 vs 行人"的二元转换。实际街道使用涉及更复杂的多方利益：</p>
+<ul>
+  <li><strong>骑行</strong>：自行车、电动滑板车的通行需求；</li>
+  <li><strong>无障碍</strong>：轮椅、视障人士的通行权与安全；</li>
+  <li><strong>配送</strong>：电商配送车、垃圾收运车、紧急维修车的接入需求；</li>
+  <li><strong>商家</strong>：沿街商业的客流送达 vs 停车需求；</li>
+  <li><strong>居民</strong>：当地居民的车辆出入与生活影响。</li>
+</ul>
+
+<p>未来可考虑在 FSI 之外，建立<strong>多目标决策矩阵</strong>——不再追求"一个综合分"，而是多维雷达图（车流影响、行人收益、商业影响、居民便利、无障碍、配送可达性），让规划者按当下优先级权衡。这与"灵活道路"的本质——多元利益的动态协调——更加吻合。</p>
+
+<!-- ════════ 6. 致谢 ════════ -->
+<h1 id="sec6" class="section">6. 致谢</h1>
+
+<p>本项目的成功推进，得益于以下机构、社区与开放资源的支持：</p>
+
+<h3>合作机构</h3>
+<ul>
+  <li><strong>Center City District (CCD)</strong>——提供 Center City 区 Open Streets 历史数据与场景验证</li>
+  <li><strong>University City District (UCD)</strong>——提供 West Philadelphia 试点区域调研支持</li>
+</ul>
+
+<h3>开源数据与工具</h3>
+<ul>
+  <li><strong>Philadelphia Open Data Portal</strong>——街道中心线、机构归属数据，以及 Playstreets 暑期游戏街公开数据集（用作 FSI 校准的 ground truth）</li>
+  <li><strong>OpenStreetMap</strong>——POI 与道路属性的核心数据源</li>
+  <li><strong>Mapbox</strong>——矢量瓦片渲染基础设施</li>
+  <li><strong>Supabase</strong>——零运维 PostgreSQL + RPC 后端</li>
+  <li><strong>Open-Meteo</strong>——免费实时天气 API</li>
+  <li><strong>Ticketmaster Discovery API</strong>——季节性活动数据</li>
+  <li><strong>Google Street View</strong>——街景图像 API</li>
+  <li><strong>LLaVA 项目</strong>——开源多模态视觉语言模型</li>
+</ul>
+
+<h3>团队与个人</h3>
+<p>项目立项、代码实现、可视化设计与试点协调由项目组共同完成。技术架构与算法实现得益于 Claude Code 协助下的快速迭代。</p>
+
+<hr>
+
+<div class="footnote">
+本报告于 2026 年 5 月生成。代码仓库：<code>flexible-street-platform</code>。<br>
+所有截图与数据示例均基于费城 Center City 与 West Philadelphia 两个试点区域 2026 年春季的真实运行结果。<br>
+报告内容反映的是项目结项时的功能状态，后续迭代请参见 git history。
+</div>
+
+</body>
+</html>

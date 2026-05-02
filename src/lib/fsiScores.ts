@@ -494,3 +494,221 @@ export function countEducationSubtypes(
   }
   return out;
 }
+
+// ── Safety / closure feasibility ──────────────────────────────────────────────
+//
+// Two independent checks that decide whether a street can be closed at all,
+// regardless of its activation potential:
+//
+//   1. Emergency-services veto — closing a street that fronts (or directly
+//      accesses) a hospital, fire station, or police station blocks the route
+//      that ambulances, fire trucks, and patrol cars must keep open. Treated
+//      as a hard veto.
+//   2. Detour feasibility — closing a street with no roughly-parallel
+//      alternative within ~250 m forces a long detour for through-traffic.
+//      Treated as a soft warning (the user can still recommend closure with a
+//      detour plan, but the UI flags it).
+//
+// Both run client-side from the POIs already loaded — no external routing API.
+
+const EMERGENCY_AMENITIES = {
+  hospital:     150,  // Hospitals need wide entry zones for ambulance bays
+  fire_station:  90,  // Fire trucks need direct access from the apparatus floor
+  police:        70,  // Patrol-car egress
+} as const;
+
+export type EmergencyAmenity = keyof typeof EMERGENCY_AMENITIES;
+
+export interface SafetyVeto {
+  /** True if this street is within the access buffer of an emergency facility. */
+  vetoed:     boolean;
+  /** Which emergency category triggered the veto (closest one wins). */
+  reason?:    EmergencyAmenity;
+  /** Perpendicular distance from street centerline to the POI, in metres. */
+  distanceM?: number;
+}
+
+/**
+ * Check whether the street polyline is within the access buffer of any
+ * emergency facility (hospital / fire_station / police / clinic).
+ *
+ * Returns the closest matching emergency POI if so. Uses the same flat-earth
+ * distance math as the FSI corridor model, so it is fully consistent with the
+ * existing scoring pipeline.
+ */
+export function getEmergencyVeto(
+  coords: [number, number][],
+  pois:   POIRecord[],
+): SafetyVeto {
+  if (!coords.length || !pois.length) return { vetoed: false };
+
+  // Widest buffer used as bbox padding so a single bbox reject covers all
+  // amenity types.
+  const widest = 150;
+  const bbox = polylineBBox(coords, widest);
+
+  let best: { reason: EmergencyAmenity; distanceM: number } | null = null;
+
+  for (const p of pois) {
+    if (p.lat < bbox.minLat || p.lat > bbox.maxLat) continue;
+    if (p.lng < bbox.minLng || p.lng > bbox.maxLng) continue;
+
+    const amenity = (p.amenity ?? '').toLowerCase() as EmergencyAmenity;
+    const buf = EMERGENCY_AMENITIES[amenity];
+    if (buf == null) continue;
+
+    const d = polylineDistanceMeters(p.lat, p.lng, coords);
+    if (d > buf) continue;
+
+    if (best == null || d < best.distanceM) {
+      best = { reason: amenity, distanceM: d };
+    }
+  }
+
+  if (best == null) return { vetoed: false };
+  return { vetoed: true, reason: best.reason, distanceM: Math.round(best.distanceM) };
+}
+
+export function emergencyReasonLabel(r: EmergencyAmenity): string {
+  switch (r) {
+    case 'hospital':     return 'Hospital access route';
+    case 'fire_station': return 'Fire-station access route';
+    case 'police':       return 'Police-station access route';
+  }
+}
+
+// ── Closure-cluster detection ─────────────────────────────────────────────────
+//
+// Single-street closure rarely breaks city traffic — the grid is redundant.
+// The real risk is when several adjacent closeable, high-FSI streets are ALL
+// candidates for closure: closing them simultaneously fragments the network.
+//
+// We define a "closure cluster" as a connected group of streets that are
+//   • closeable (agency in CITY_CLOSEABLE / NEEDS_APPROVAL)
+//   • score ≥ MIN_CLUSTER_SCORE
+//   • not vetoed for emergency access
+// connected via shared intersections (street endpoints within ENDPOINT_TOL_M).
+//
+// Clusters of size ≥ MIN_CLUSTER_SIZE are flagged so the operator knows
+// closing one of them implies coordinating the rest. Single isolated
+// recommendations are NOT flagged — they are safe to close in isolation.
+
+const MIN_CLUSTER_SCORE = 75;
+const MIN_CLUSTER_SIZE  = 3;
+const ENDPOINT_TOL_M    = 35;   // ≈ half a city block; covers OSM/Mapbox node snapping
+
+export interface ClusterCandidate {
+  fid:          number;
+  coords:       [number, number][];
+  score:        number;
+  closeability: Closeability;
+  vetoed:       boolean;
+}
+
+export interface ClusterResult {
+  /** Map from fid → cluster info, only for streets in clusters of size ≥ MIN_CLUSTER_SIZE. */
+  clusterByFid: Map<number, { clusterId: number; size: number }>;
+  /** All clusters meeting the size threshold. */
+  clusters: Array<{ id: number; fids: number[] }>;
+}
+
+/**
+ * Group eligible streets into closure clusters via union-find on shared
+ * endpoints. Returns clusters with ≥ MIN_CLUSTER_SIZE members.
+ *
+ * Pure function — operates entirely on the candidates the caller passes in.
+ * The caller is responsible for limiting the input to the relevant set
+ * (e.g. viewport features after applyScores has run).
+ */
+export function findClusters(streets: ClusterCandidate[]): ClusterResult {
+  const candidates = streets.filter(s =>
+    !s.vetoed &&
+    s.score >= MIN_CLUSTER_SCORE &&
+    (s.closeability === 'yes' || s.closeability === 'approval') &&
+    s.coords.length >= 2
+  );
+
+  if (candidates.length < MIN_CLUSTER_SIZE) {
+    return { clusterByFid: new Map(), clusters: [] };
+  }
+
+  // Spatial hash on endpoints, cell size = tolerance so neighbours fall in
+  // the 3×3 surrounding cells.
+  const TOL_DEG = ENDPOINT_TOL_M / 111_000;
+  const cellOf = (lng: number, lat: number) =>
+    `${Math.round(lng / TOL_DEG)},${Math.round(lat / TOL_DEG)}`;
+
+  type Endpoint = { lng: number; lat: number; fid: number; cx: number; cy: number };
+  const endpoints: Endpoint[] = [];
+  for (const s of candidates) {
+    const a = s.coords[0];
+    const b = s.coords[s.coords.length - 1];
+    const cellA = cellOf(a[0], a[1]).split(',').map(Number);
+    const cellB = cellOf(b[0], b[1]).split(',').map(Number);
+    endpoints.push({ lng: a[0], lat: a[1], fid: s.fid, cx: cellA[0], cy: cellA[1] });
+    endpoints.push({ lng: b[0], lat: b[1], fid: s.fid, cx: cellB[0], cy: cellB[1] });
+  }
+
+  const byCell = new Map<string, Endpoint[]>();
+  for (const ep of endpoints) {
+    const key = `${ep.cx},${ep.cy}`;
+    const arr = byCell.get(key);
+    if (arr) arr.push(ep);
+    else byCell.set(key, [ep]);
+  }
+
+  // Disjoint-set union with path compression — O(α(N)) per op.
+  const parent = new Map<number, number>();
+  for (const s of candidates) parent.set(s.fid, s.fid);
+  const find = (x: number): number => {
+    let p = parent.get(x)!;
+    while (p !== x) {
+      const gp = parent.get(p)!;
+      parent.set(x, gp);
+      x = p;
+      p = gp;
+    }
+    return x;
+  };
+  const union = (a: number, b: number) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  const TOL_M2 = ENDPOINT_TOL_M * ENDPOINT_TOL_M;
+  for (const ep of endpoints) {
+    const mLat = 110_540;
+    const mLng = 111_320 * Math.cos(ep.lat * Math.PI / 180);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+      const cell = byCell.get(`${ep.cx + dx},${ep.cy + dy}`);
+      if (!cell) continue;
+      for (const other of cell) {
+        if (other.fid === ep.fid) continue;
+        const ddx = (other.lng - ep.lng) * mLng;
+        const ddy = (other.lat - ep.lat) * mLat;
+        if (ddx * ddx + ddy * ddy <= TOL_M2) union(ep.fid, other.fid);
+      }
+    }
+  }
+
+  // Group fids by their component root.
+  const groups = new Map<number, number[]>();
+  for (const s of candidates) {
+    const root = find(s.fid);
+    const arr = groups.get(root);
+    if (arr) arr.push(s.fid);
+    else groups.set(root, [s.fid]);
+  }
+
+  const clusters: Array<{ id: number; fids: number[] }> = [];
+  const clusterByFid = new Map<number, { clusterId: number; size: number }>();
+  let nextId = 1;
+  for (const [, fids] of groups) {
+    if (fids.length < MIN_CLUSTER_SIZE) continue;
+    const id = nextId++;
+    clusters.push({ id, fids });
+    for (const f of fids) clusterByFid.set(f, { clusterId: id, size: fids.length });
+  }
+  return { clusterByFid, clusters };
+}
+
