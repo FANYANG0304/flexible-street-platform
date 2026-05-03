@@ -1,17 +1,21 @@
 # Flexible Street Platform
 
+**🌐 语言 / Language:** **简体中文** · [English](README.en.md)
+
+---
+
 > 面向城市规划者的"灵活街道"决策辅助平台。在费城地图上为每条街道实时计算 0-100 的 **Flexibility Score Index (FSI)**，结合 POI 密度、AI 街景视觉评分、实时天气 / 交通 / 节日 / 活动等多源数据，并叠加紧急通道一票否决与簇群协调约束，回答"何时、何处可以临时把街道让渡给行人/活动/商业"。
 >
 > **代码仓库：** https://github.com/FANYANG0304/flexible-street-platform
 > **试点城市：** 美国费城（Philadelphia, PA）
-> **当前状态：** 项目结项，已交付完整 MVP
+> **本文档目的：** 让任何拿到代码的人都能从零部署一份自己的实例，并理解项目的架构与设计思路。
 
 ---
 
 ## 目录
 
 1. [项目简介](#1-项目简介)
-2. [快速开始](#2-快速开始) — 给新接手的人
+2. [快速开始](#2-快速开始)
 3. [配置环境变量](#3-配置环境变量)
 4. [Supabase 后端](#4-supabase-后端)
 5. [启动与健康检查](#5-启动开发服务器与健康检查)
@@ -20,7 +24,7 @@
 8. [常见问题排查](#8-常见问题排查)
 9. [后续开发常用模式](#9-后续开发常用模式)
 10. [项目报告与延伸阅读](#10-项目报告与延伸阅读)
-11. [交接确认 Checklist](#11-交接确认-checklist)
+11. [部署后自检清单](#11-部署后自检清单)
 
 ---
 
@@ -73,7 +77,7 @@
 
 ## 2. 快速开始
 
-> 本节面向**新接手项目的开发者**，从零开始 5 分钟跑起来。
+> 5 分钟从零本地跑起来。
 
 ### 2.1 前置工具
 
@@ -185,24 +189,47 @@ GitHub repo → Settings → Secrets and variables → Actions → New repositor
 另有一个表是分页加载的：
 - `street_ai_scores` — LLaVA 离线分析结果，初始化一次性加载（每批 1000 行）。详见 [streetScores.ts](src/lib/streetScores.ts)
 
-### 4.2 接管 Supabase 项目的两种方式
+### 4.2 部署你自己的 Supabase 实例
 
-**方式 A：沿用现有 Supabase 项目（推荐）**
+平台不带任何服务器后端——你需要有一个自己的 Supabase 项目来存数据。最快的方式是直接 import 项目结项时导出的费城数据库快照（包含表结构、所有 POI 数据、AI 分数、Playstreets、Open Streets 活动、4 个 RPC 函数和 RLS policies），10 分钟就能起来。
 
-让前任开发者把你加到 Supabase 项目：
-```
-Supabase Dashboard → 项目 → Settings → Team → Add member
-```
-加入后能直接拿到 URL 和 anon key，填进 `.env` 就能跑。所有 RPC、表、数据已就位。
+**步骤：**
 
-**方式 B：自己起新 Supabase 项目（仅当原项目无法转移时）**
+1. 注册 Supabase 账号（免费）：https://supabase.com/dashboard
+2. 创建一个新项目
+   - Region 推荐 **East US 2** 或 **N. Virginia**（数据是费城的，地理上最近）
+   - Database password 自己设一个，记下来后面 import 要用
+3. 等项目初始化完成（约 2 分钟）
+4. 进入新项目的 **SQL Editor**，新建 query 先开启 PostGIS 扩展（项目用了空间查询，**这一步必须**）：
+   ```sql
+   CREATE EXTENSION IF NOT EXISTS postgis;
+   ```
+5. 下载费城数据库快照：
+   - **下载链接：** https://drive.google.com/file/d/1n17KISskPiTSJghWa26Kc7CqiWpn-LG5/view?usp=sharing
+   - 文件名：`flexible-street-backup.sql`（约 100-300 MB）
+6. 把 SQL 文件 import 到新项目。两种方式任选其一：
 
-工作量很大，预计 1-2 周。需要：
-1. 重建数据库表：`poi`、`street_ai_scores`、`playstreets`、`street_events` 等
-2. 实现 4 个 RPC 函数（PL/pgSQL，本质是带空间过滤的 SELECT）
-3. 数据导入：POI 从 OpenStreetMap、AI 分数需重新跑 LLaVA 流程
+   **A) 用 psql 命令（推荐，大文件更稳）**
+   ```bash
+   psql "postgresql://postgres:你的密码@db.你的项目.supabase.co:5432/postgres" \
+        -f flexible-street-backup.sql
+   ```
+   连接串去 **Settings → Database → Connection string → URI（Direct connection，端口 5432）** 复制，注意**不要**用 Pooler（端口 6543）。
 
-> 强烈建议方式 A。如果必须方式 B，请联系前任开发者拿 schema 导出文件。
+   **B) 直接粘贴到 SQL Editor**
+
+   仅当文件 < 50 MB 时方便。打开 .sql 文件复制全部内容，粘进 SQL Editor 执行。
+7. 在 **Project Settings → API** 拿到你的：
+   - `Project URL` → 填到 `.env` 的 `VITE_SUPABASE_URL`
+   - `anon` `public` key → 填到 `VITE_SUPABASE_ANON_KEY`
+
+#### 部署到非费城城市的话
+
+费城的 POI / AI 分数 / Playstreets 数据当然不适用其他城市。你需要替换：
+- `poi` 表数据 → 你的城市的 OSM POI 抽取
+- `street_ai_scores` 表 → 重新跑一遍 LLaVA 视觉分析流程
+- [src/data/mockData.ts](src/data/mockData.ts) 里的试点区域 bbox 与节日日历
+- Mapbox 矢量瓦片 URL（[MapComponent.tsx](src/components/MapComponent.tsx) 中硬编码 `mapbox://yangf0304.az4ve7hc`，改成你自己上传的城市街道中心线瓦片）
 
 ---
 
@@ -451,7 +478,7 @@ GitHub Pages 在国内不稳定。考虑迁移到 Vercel（全球 CDN，对国�
 
 | 资源 | 说明 |
 |---|---|
-| [reports/final-report.pdf](reports/final-report.pdf) | **项目结项详细报告（中文）**——背景、目的、方法、结论、未来工作。新接手者必读 |
+| [reports/final-report.pdf](reports/final-report.pdf) | **项目结项详细报告（中文）**——背景、目的、方法、结论与未来工作展望 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 多平台部署细节（Vercel/Netlify/Docker） |
 | [Mapbox GL JS 文档](https://docs.mapbox.com/mapbox-gl-js/api/) | 地图引擎 API |
 | [Supabase 文档](https://supabase.com/docs) | 后端 |
@@ -459,26 +486,45 @@ GitHub Pages 在国内不稳定。考虑迁移到 Vercel（全球 CDN，对国�
 
 ---
 
-## 11. 交接确认 Checklist
+## 11. 部署后自检清单
 
-新接手者按以下清单确认所有交接事项已到位：
+跟着前面的章节走完后，按以下清单确认所有部署步骤都到位：
 
-- [ ] 已被加入 GitHub 仓库（拥有 push 权限）
-- [ ] 已被加入 Supabase 项目（能看到 dashboard 和 keys）
-- [ ] 已拿到 Mapbox account 访问（或申请新 token）
-- [ ] 已拿到 Google Cloud project 访问（或申请新 SV key）
-- [ ] 已拿到 Ticketmaster developer 账号（或申请新 key）
-- [ ] 本地 `npm run dev` 能正常启动
-- [ ] 能在 localhost:5173 看到地图加载
-- [ ] 能看到街道分数色块、点击街道弹出详情面板
-- [ ] 能看到紧急通道 veto（粉红色）
-- [ ] 能看到簇群光晕（青色）
-- [ ] `npm run build` 成功，dist/ 目录正常生成
-- [ ] 已读完 [reports/final-report.pdf](reports/final-report.pdf) 了解项目背景与设计决策
-- [ ] 已读完 [src/lib/fsiScores.ts](src/lib/fsiScores.ts) 头部注释了解算法
-- [ ] GitHub repo Settings → Secrets 里 4 个 secret 都已配好（如果继续用 GitHub Pages）
+**API key 准备**
+- [ ] Mapbox token 已在 https://account.mapbox.com 申请
+- [ ] Google Street View Static API 已启用并拿到 key（可选）
+- [ ] Ticketmaster developer 账号已注册（可选）
 
-完成以上所有项后，你就完整掌握这个项目了。祝顺利！
+**Supabase 后端**
+- [ ] 自己的 Supabase 项目已创建
+- [ ] `CREATE EXTENSION postgis` 已执行
+- [ ] `flexible-street-backup.sql` 已 import，无报错
+- [ ] Project URL 与 anon key 已复制出来
+
+**本地配置**
+- [ ] `.env` 文件已建好，5 个变量都已填入
+- [ ] `npm install` 成功
+- [ ] `npm run dev` 能正常启动 dev server
+
+**功能验证**
+- [ ] 浏览器打开 http://localhost:5173 能看到首页
+- [ ] 进入 `/map` 后费城地图正常加载
+- [ ] 打开侧栏 "Flexibility Score" 后街道开始上色
+- [ ] 点击街道能弹出详情面板
+- [ ] 详情面板能看到 commercial / community 子分数
+- [ ] 部分街道能看到紧急通道 veto（粉红色）
+- [ ] 部分街道能看到簇群光晕（青色）
+
+**生产构建**
+- [ ] `npm run build` 成功，`dist/` 目录正常生成
+
+**（可选）GitHub Pages 自动部署**
+- [ ] GitHub repo Settings → Pages 已启用 "GitHub Actions" 作为 source
+- [ ] Settings → Secrets 里 4 个 secret 都已配好
+
+**理解项目**
+- [ ] 已浏览 [reports/final-report.pdf](reports/final-report.pdf) 了解背景与设计思路
+- [ ] 已读 [src/lib/fsiScores.ts](src/lib/fsiScores.ts) 头部注释理解 FSI 算法
 
 ---
 
