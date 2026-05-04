@@ -1,95 +1,96 @@
 # Flexible Street Platform
 
-**🌐 语言 / Language:** **简体中文** · [English](README.en.md)
+**🌐 语言 / Language:** [简体中文](README.zh.md) · **English**
 
 ---
 
-> 面向城市规划者的"灵活街道"决策辅助平台。在费城地图上为每条街道实时计算 0-100 的 **Flexibility Score Index (FSI)**，结合 POI 密度、AI 街景视觉评分、实时天气 / 交通 / 节日 / 活动等多源数据，并叠加紧急通道一票否决与簇群协调约束，回答"何时、何处可以临时把街道让渡给行人/活动/商业"。
+> A decision-support platform for urban planners that scores every street in Philadelphia on a real-time **Flexibility Score Index (FSI)** from 0-100. The score blends POI density, AI street-view perception, and live weather / traffic / events / holidays modifiers, and is overlaid with two safety constraints (emergency-services veto and closure-cluster coordination). The platform answers: *"when and where can we temporarily reallocate this street from car traffic to pedestrians, events, or commerce?"*
 >
-> **代码仓库：** https://github.com/FANYANG0304/flexible-street-platform
-> **试点城市：** 美国费城（Philadelphia, PA）
-> **本文档目的：** 让任何拿到代码的人都能从零部署一份自己的实例，并理解项目的架构与设计思路。
+> **Repository:** https://github.com/FANYANG0304/flexible-street-platform
+> **Pilot city:** Philadelphia, PA, USA
+> **Purpose of this document:** Enable anyone who has the code to deploy their own instance from scratch and understand the project's architecture and design rationale.
 
 ---
 
-## 目录
+## Table of Contents
 
-1. [项目简介](#1-项目简介)
-2. [快速开始](#2-快速开始)
-3. [配置环境变量](#3-配置环境变量)
-4. [Supabase 后端](#4-supabase-后端)
-5. [启动与健康检查](#5-启动开发服务器与健康检查)
-6. [项目结构](#6-项目结构)
-7. [构建与部署](#7-构建与部署)
-8. [常见问题排查](#8-常见问题排查)
-9. [后续开发常用模式](#9-后续开发常用模式)
-10. [项目报告与延伸阅读](#10-项目报告与延伸阅读)
-11. [部署后自检清单](#11-部署后自检清单)
+1. [Project Overview](#1-project-overview)
+2. [Quick Start](#2-quick-start)
+3. [Environment Variables](#3-environment-variables)
+4. [Supabase Backend](#4-supabase-backend)
+5. [Running & Health Checks](#5-running--health-checks)
+6. [Project Structure](#6-project-structure)
+7. [Build & Deploy](#7-build--deploy)
+8. [Troubleshooting](#8-troubleshooting)
+9. [Common Development Patterns](#9-common-development-patterns)
+10. [Reports & Further Reading](#10-reports--further-reading)
+11. [Post-Deployment Checklist](#11-post-deployment-checklist)
 
 ---
 
-## 1. 项目简介
+## 1. Project Overview
 
-### 1.1 是什么
+### 1.1 What it is
 
-平台核心是一套 **FSI (Flexibility Score Index)** 算法：基于沿街 POI 密度，按"垂直走廊衰减模型"算出每条街的商业活力 (commercial) 和社区机构密度 (community) 两个评分维度，sigmoid 归一化到 0-100。在此基础上叠加 4 类乘性修正（实时交通、天气、季节性活动、节日加成）和 1 类 AI 加权（LLaVA 街景视觉感知）。
+The platform's core is the **FSI (Flexibility Score Index)** algorithm: based on along-street POI density, it computes two scoring dimensions per street — **commercial** vibrancy and **community** institution density — using a perpendicular-corridor decay model, then sigmoid-normalizes each to 0-100. Four multiplicative modifiers (live traffic, weather, seasonal events, holiday boosts) and one AI-weighted blend (LLaVA street-view perception) are applied on top of the base score.
 
-之外还有 3 个**独立约束层**（不污染分数、单独呈现）：
-- **所有权与可关闭性** — 14 类 agency 分级（CITY 直接可关 / SEPTA 等需协调 / STATE 不可关）
-- **紧急通道一票否决** — 医院 150m / 消防站 90m / 警察局 70m 缓冲区内禁止关闭
-- **簇群协调检测** — union-find 算法找出 ≥3 条相连且都可关闭的高分街，提示决策者"集团动作要协调"
+In addition, three **independent constraint layers** (which do *not* alter the score, but are presented separately):
 
-### 1.2 技术栈
+- **Ownership / closeability** — 14 agency types graded into 3 tiers (CITY = directly closeable / SEPTA etc. = needs coordination / STATE = cannot close)
+- **Emergency-services veto** — Streets within 150 m of a hospital, 90 m of a fire station, or 70 m of a police station are forbidden from closure
+- **Closure-cluster detection** — A union-find algorithm finds groups of ≥3 connected, closeable, high-scoring streets, signaling that closing one implies coordinating the rest
 
-| 层 | 选型 |
+### 1.2 Tech Stack
+
+| Layer | Technology |
 |---|---|
-| 前端框架 | React 18 + TypeScript 5.6 + Vite 5.4 |
-| 地图引擎 | Mapbox GL JS 3.7（自定义矢量瓦片） |
-| 后端 | Supabase（PostgreSQL + RPC 函数） |
-| 样式 | Tailwind CSS 3.3 |
-| 图标 | Lucide React |
-| AI 模块 | LLaVA 7B（离线预跑，结果存 Supabase） |
-| 部署 | GitHub Actions → GitHub Pages（也支持 Vercel/Netlify） |
+| Frontend | React 18 + TypeScript 5.6 + Vite 5.4 |
+| Map engine | Mapbox GL JS 3.7 (custom vector tiles) |
+| Backend | Supabase (PostgreSQL + RPC functions) |
+| Styling | Tailwind CSS 3.3 |
+| Icons | Lucide React |
+| AI module | LLaVA 7B (offline pre-scoring, results stored in Supabase) |
+| Deployment | GitHub Actions → GitHub Pages (also supports Vercel/Netlify) |
 
-**运行形态：** 纯静态站点。所有评分在浏览器端实时计算，后端只通过 4 个 RPC 函数提供数据。**无独立服务端进程。**
+**Runtime model:** Pure static site. All scoring happens in the browser in real-time; the backend only serves data through 4 RPC functions. **No standalone server process.**
 
-### 1.3 项目当前完成度
+### 1.3 Current Completion Status
 
-| 功能 | 状态 |
+| Feature | Status |
 |---|---|
-| 多维 FSI 评分（commercial + community） | ✅ |
-| Mobility 信息标签（不参与综合分） | ✅ |
-| 实时调节因子（traffic / weather / events / holiday） | ✅ |
-| LLaVA AI 街景视觉感知 | ✅ |
-| 所有权 / 可关闭性分级 | ✅ |
-| 紧急通道一票否决 | ✅ |
-| 簇群协调检测 | ✅ |
-| 试点区域可视化（Center City / West Philadelphia） | ✅ |
-| Playstreets 验证集校准 | ✅ |
-| 详情面板与因子解释 | ✅ |
-| 用户反馈机制 | 🔮 未来工作 |
-| 路网拓扑 / 绕行成本分析 | 🔮 未来工作 |
-| 单行道识别 | 🔮 未来工作 |
+| Multi-dimensional FSI scoring (commercial + community) | ✅ |
+| Mobility informational tag (excluded from composite) | ✅ |
+| Live modifiers (traffic / weather / events / holiday) | ✅ |
+| LLaVA AI street-view perception | ✅ |
+| Ownership / closeability tiering | ✅ |
+| Emergency-services veto | ✅ |
+| Closure-cluster detection | ✅ |
+| Pilot zone visualization (Center City / West Philadelphia) | ✅ |
+| Playstreets validation calibration | ✅ |
+| Detail panel with factor explanations | ✅ |
+| User feedback mechanism | 🔮 Future work |
+| Network topology / detour-cost analysis | 🔮 Future work |
+| One-way street awareness | 🔮 Future work |
 
-详细的设计反思和未来规划，见 [reports/final-report.pdf](reports/final-report.pdf)。
+For detailed design reflections and future plans, see [reports/final-report.pdf](reports/final-report.pdf).
 
 ---
 
-## 2. 快速开始
+## 2. Quick Start
 
-> 5 分钟从零本地跑起来。
+> Get it running locally in 5 minutes.
 
-### 2.1 前置工具
+### 2.1 Prerequisites
 
-| 工具 | 最低版本 | 验证 |
+| Tool | Minimum Version | Verify |
 |---|---|---|
 | Git | 2.30+ | `git --version` |
-| Node.js | **18.x 或更高** | `node --version` |
+| Node.js | **18.x or higher** | `node --version` |
 | npm | 9+ | `npm --version` |
 
-> Node 18 是必需的——React 18 / Vite 5 / Mapbox GL 3 都依赖它，GitHub Actions 上跑的也是 Node 18。
+> Node 18 is required — React 18 / Vite 5 / Mapbox GL 3 all depend on it, and the GitHub Actions runner uses Node 18 too.
 
-### 2.2 克隆 + 装依赖
+### 2.2 Clone + Install
 
 ```bash
 git clone https://github.com/FANYANG0304/flexible-street-platform.git
@@ -97,434 +98,396 @@ cd flexible-street-platform
 npm install
 ```
 
-国内网络慢可先切镜像：
-
-```bash
-npm config set registry https://registry.npmmirror.com
-```
-
-### 2.3 配环境变量（关键步骤，详见 §3）
+### 2.3 Configure environment variables (see §3)
 
 ```bash
 cp .env.example .env
-# 然后用编辑器打开 .env，填入真实的 5 个 key
+# Open .env and fill in the 5 keys.
 ```
 
-### 2.4 启动
+### 2.4 Start dev server
 
 ```bash
 npm run dev
 ```
 
-打开 http://localhost:5173 看效果。
+Open http://localhost:5173 in your browser.
 
 ---
 
-## 3. 配置环境变量
+## 3. Environment Variables
 
-### 3.1 为什么 clone 下来运行不起来？
+API keys are not committed to the repo. They live in a local `.env` file (ignored by git). Copy [`.env.example`](.env.example) to `.env` and fill in the values below.
 
-**关键原因：** 仓库里**没有任何 API key**。所有敏感信息（Mapbox token、Supabase 密钥、Google API key 等）都通过 `.env` 文件管理，而 `.env` 被 [`.gitignore`](.gitignore) 显式排除。
+### 3.1 The 5 Variables
 
-这是**故意的、也是必须的**——把 API key 提交到公开仓库等于把家门钥匙挂在街上，会被扫描盗用，付费 API 还会刷你账单。
+| Variable | Purpose | Where to obtain |
+|---|---|---|
+| `VITE_MAPBOX_TOKEN` | Map rendering and vector tiles | https://account.mapbox.com/access-tokens/ |
+| `VITE_SUPABASE_URL` | Supabase backend URL | Supabase dashboard → Project Settings → API |
+| `VITE_SUPABASE_ANON_KEY` | Supabase public anonymous key | Same as above |
+| `VITE_GOOGLE_SV_KEY` | Street View imagery in the detail panel | https://console.cloud.google.com/ → enable "Street View Static API" |
+| `VITE_TICKETMASTER_KEY` | Seasonal events data feeding the events modifier | https://developer.ticketmaster.com/ |
 
-仓库里你能看到的相关文件只有：
-- [`.env.example`](.env.example) — **模板文件**，列出需要哪些 key，但所有值都是占位符
-- [`.gitignore`](.gitignore) — 配置 `.env` 不被提交
+All 5 are needed for full functionality. Mapbox, Google, and Ticketmaster have generous free tiers that comfortably cover normal use.
 
-### 3.2 5 个环境变量详解
+### 3.2 Security
 
-| 变量名 | 必需？ | 用途 | 申请地址 | 大致费用 |
-|---|---|---|---|---|
-| `VITE_MAPBOX_TOKEN` | ✅ 必需 | Mapbox 地图渲染、矢量瓦片访问 | https://account.mapbox.com/access-tokens/ | 免费层 50,000 次/月 |
-| `VITE_SUPABASE_URL` | ✅ 必需 | Supabase 后端 URL | https://supabase.com/dashboard → Project Settings → API | 免费 |
-| `VITE_SUPABASE_ANON_KEY` | ✅ 必需 | Supabase 公共匿名访问密钥 | 同上 | 免费 |
-| `VITE_GOOGLE_SV_KEY` | ⚠ 可选 | Google Street View 街景图 | https://console.cloud.google.com/ → 启用 "Street View Static API" | 28,000 次/月免费 |
-| `VITE_TICKETMASTER_KEY` | ⚠ 可选 | 季节性活动数据（评分加成） | https://developer.ticketmaster.com/ | 5,000 次/天免费 |
+All `VITE_*` variables are bundled into the frontend JS and visible in the browser. Lock them down on the provider side using HTTP referrer restrictions (Mapbox, Google Cloud) or rate limits. Never put server-side secrets — e.g. Supabase `service_role` key — into a `VITE_*` variable; only the `anon` key is safe to expose.
 
-**可选变量缺失会怎样？**
-- 没 `VITE_GOOGLE_SV_KEY` → 详情面板的街景图区域消失，其它正常
-- 没 `VITE_TICKETMASTER_KEY` → events 修正因子永远 = 1.0（不加成），其它正常
+### 3.3 GitHub Secrets (for GitHub Pages auto-deploy)
 
-### 3.3 安全提醒（重要）
-
-⚠ **所有 `VITE_*` 前缀的变量都会被打包进前端 JS，最终在浏览器中可见。** 这是 Vite 的设计——凡是要在浏览器里用的变量，都必须带 `VITE_` 前缀。
-
-这意味着这些 key 本质上是**公开的**。保护方式靠的不是隐藏，而是**在 API 服务商一侧加访问限制**：
-
-- **Mapbox**：在 token 设置页加 URL referrer 限制，只允许你的域名访问
-- **Google Cloud**：在 API key 设置页加 HTTP referrer 限制
-- **Ticketmaster**：免费层有限速，问题不大
-- **Supabase Anon Key**：靠 Supabase 的 Row Level Security (RLS)；anon key 本身就是设计成可公开的
-
-**永远不要**把私钥（如 Supabase service_role key、Anthropic API key 等服务端密钥）放到 `VITE_*` 变量里。
-
-### 3.4 GitHub Secrets（部署 GitHub Pages 时用）
-
-如果用 GitHub Actions 自动部署到 Pages（[deploy.yml](.github/workflows/deploy.yml)），需要在仓库后台配 4 个 secret：
+When using GitHub Actions ([deploy.yml](.github/workflows/deploy.yml)), set the same 5 keys as repository secrets at:
 
 ```
-GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+Settings → Secrets and variables → Actions → New repository secret
 ```
 
-需要建：`VITE_MAPBOX_TOKEN`、`VITE_SUPABASE_URL`、`VITE_SUPABASE_ANON_KEY`、`VITE_GOOGLE_SV_KEY`
-
-> 当前 workflow 没配 `VITE_TICKETMASTER_KEY`。要在线上启用活动加成，需在 deploy.yml 加一行 `VITE_TICKETMASTER_KEY: ${{ secrets.VITE_TICKETMASTER_KEY }}` 并在 Secrets 里建对应条目。
+The workflow currently injects 4 of them (`VITE_MAPBOX_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_GOOGLE_SV_KEY`). To also pass Ticketmaster, add `VITE_TICKETMASTER_KEY: ${{ secrets.VITE_TICKETMASTER_KEY }}` in the build step's `env` block.
 
 ---
 
-## 4. Supabase 后端
+## 4. Supabase Backend
 
-平台所有持久化数据（POI、街道 AI 分数、Playstreets、Open Streets 活动）都在 Supabase。前端**只通过 4 个 RPC 函数**访问后端，没有任何直接的 `.from(table)` 表操作——所有数据访问都已封装为存储过程。
+All persistent data (POIs, AI street scores, Playstreets, Open Streets events) lives in Supabase. The frontend **only accesses the backend via 4 RPC functions** — no direct `.from(table)` calls — so all data access is wrapped as stored procedures.
 
-### 4.1 RPC 函数清单
+### 4.1 RPC Function Reference
 
-| RPC 名 | 参数 | 用途 | 调用位置 |
+| RPC name | Arguments | Purpose | Called from |
 |---|---|---|---|
-| `get_anchors_in_bounds` | `min/max_lat/lng, scenario_ids[]` | 取边界内的 POI 锚点（按场景过滤） | [MapComponent.tsx:299](src/components/MapComponent.tsx) |
-| `get_poi_in_bounds` | `min/max_lat/lng` | 取边界内所有 POI（FSI 评分核心数据） | [MapPage.tsx:194](src/pages/MapPage.tsx)、[MapComponent.tsx:315](src/components/MapComponent.tsx) |
-| `get_playstreets_lines_in_bounds` | `min/max_lat/lng` | 取边界内 Playstreets 线（验证集） | [MapPage.tsx:207](src/pages/MapPage.tsx)、[MapComponent.tsx:330](src/components/MapComponent.tsx) |
-| `get_street_events_in_bounds` | `min/max_lat/lng` | 取边界内的 Open Streets 活动 | [MapPage.tsx:210](src/pages/MapPage.tsx)、[MapComponent.tsx:346](src/components/MapComponent.tsx) |
+| `get_anchors_in_bounds` | `min/max_lat/lng, scenario_ids[]` | Fetch POI anchors in viewport (filtered by scenario) | [MapComponent.tsx:299](src/components/MapComponent.tsx) |
+| `get_poi_in_bounds` | `min/max_lat/lng` | Fetch all POIs in viewport (FSI scoring core data) | [MapPage.tsx:194](src/pages/MapPage.tsx), [MapComponent.tsx:315](src/components/MapComponent.tsx) |
+| `get_playstreets_lines_in_bounds` | `min/max_lat/lng` | Fetch Playstreets lines in viewport (validation set) | [MapPage.tsx:207](src/pages/MapPage.tsx), [MapComponent.tsx:330](src/components/MapComponent.tsx) |
+| `get_street_events_in_bounds` | `min/max_lat/lng` | Fetch Open Streets events in viewport | [MapPage.tsx:210](src/pages/MapPage.tsx), [MapComponent.tsx:346](src/components/MapComponent.tsx) |
 
-另有一个表是分页加载的：
-- `street_ai_scores` — LLaVA 离线分析结果，初始化一次性加载（每批 1000 行）。详见 [streetScores.ts](src/lib/streetScores.ts)
+There is one paginated table:
+- `street_ai_scores` — LLaVA offline analysis results, loaded once at init (1000 rows per batch). See [streetScores.ts](src/lib/streetScores.ts).
 
-### 4.2 部署你自己的 Supabase 实例
+### 4.2 Deploy your own Supabase instance
 
-平台不带任何服务器后端——你需要有一个自己的 Supabase 项目来存数据。最快的方式是直接 import 项目结项时导出的费城数据库快照（包含表结构、所有 POI 数据、AI 分数、Playstreets、Open Streets 活动、4 个 RPC 函数和 RLS policies），10 分钟就能起来。
+You need a Supabase project to host the data. The Philadelphia snapshot exported at project closeout includes the schema, all POI data, AI scores, Playstreets, Open Streets events, the 4 RPC functions, and RLS policies — restoring it takes about 10 minutes.
 
-**步骤：**
-
-1. 注册 Supabase 账号（免费）：https://supabase.com/dashboard
-2. 创建一个新项目
-   - Region 推荐 **East US 2** 或 **N. Virginia**（数据是费城的，地理上最近）
-   - Database password 自己设一个，记下来后面 import 要用
-3. 等项目初始化完成（约 2 分钟）
-4. 进入新项目的 **SQL Editor**，新建 query 先开启 PostGIS 扩展（项目用了空间查询，**这一步必须**）：
+1. Create a free account at https://supabase.com/dashboard.
+2. Create a new project. Pick **East US 2** or **N. Virginia** as the region. Set a database password and keep it — you'll need it to run the import.
+3. Wait for the project to finish provisioning (~2 minutes).
+4. In the new project's **SQL Editor**, enable PostGIS first. The project relies on spatial queries, so this step is mandatory:
    ```sql
    CREATE EXTENSION IF NOT EXISTS postgis;
    ```
-5. 下载费城数据库快照：
-   - **下载链接：** https://drive.google.com/file/d/1n17KISskPiTSJghWa26Kc7CqiWpn-LG5/view?usp=sharing
-   - 文件名：`flexible-street-backup.sql`（约 100-300 MB）
-6. 把 SQL 文件 import 到新项目。两种方式任选其一：
-
-   **A) 用 psql 命令（推荐，大文件更稳）**
+5. Download the snapshot: https://drive.google.com/file/d/1n17KISskPiTSJghWa26Kc7CqiWpn-LG5/view?usp=sharing (`flexible-street-backup.sql`).
+6. Import the file. The recommended path is `psql`:
    ```bash
-   psql "postgresql://postgres:你的密码@db.你的项目.supabase.co:5432/postgres" \
+   psql "postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT.supabase.co:5432/postgres" \
         -f flexible-street-backup.sql
    ```
-   连接串去 **Settings → Database → Connection string → URI（Direct connection，端口 5432）** 复制，注意**不要**用 Pooler（端口 6543）。
+   Copy the connection string from **Settings → Database → Connection string → URI (Direct connection, port 5432)**. Do not use the Pooler URL on port 6543 — `psql` won't work through it.
 
-   **B) 直接粘贴到 SQL Editor**
+   For small files you can also paste the SQL directly into the SQL Editor and run it.
+7. From **Project Settings → API**, copy `Project URL` into `VITE_SUPABASE_URL` and the `anon` `public` key into `VITE_SUPABASE_ANON_KEY` in your `.env`.
 
-   仅当文件 < 50 MB 时方便。打开 .sql 文件复制全部内容，粘进 SQL Editor 执行。
-7. 在 **Project Settings → API** 拿到你的：
-   - `Project URL` → 填到 `.env` 的 `VITE_SUPABASE_URL`
-   - `anon` `public` key → 填到 `VITE_SUPABASE_ANON_KEY`
+#### Deploying to another city
 
-#### 部署到非费城城市的话
+Philadelphia's POI, AI scores, and Playstreets data won't fit other cities. You'll need to swap:
 
-费城的 POI / AI 分数 / Playstreets 数据当然不适用其他城市。你需要替换：
-- `poi` 表数据 → 你的城市的 OSM POI 抽取
-- `street_ai_scores` 表 → 重新跑一遍 LLaVA 视觉分析流程
-- [src/data/mockData.ts](src/data/mockData.ts) 里的试点区域 bbox 与节日日历
-- Mapbox 矢量瓦片 URL（[MapComponent.tsx](src/components/MapComponent.tsx) 中硬编码 `mapbox://yangf0304.az4ve7hc`，改成你自己上传的城市街道中心线瓦片）
+- `poi` table → OSM POI extract for your city
+- `street_ai_scores` table → rerun the LLaVA pipeline against your city's Street View imagery
+- Pilot-zone bboxes and the holiday calendar in [src/data/mockData.ts](src/data/mockData.ts)
+- Mapbox vector tile URL hardcoded as `mapbox://yangf0304.az4ve7hc` in [MapComponent.tsx](src/components/MapComponent.tsx)
 
 ---
 
-## 5. 启动开发服务器与健康检查
+## 5. Running & Health Checks
 
 ```bash
 npm run dev
 ```
 
-正常输出：
+Normal output:
 
 ```
   VITE v5.4.21  ready in 800 ms
   ➜  Local:   http://localhost:5173/
 ```
 
-打开 http://localhost:5173/ 应看到：
-1. 首页（Landing page）
-2. 进入 `/map` 后费城地图加载
-3. 打开侧边栏的 "Flexibility Score" 开关后，街道开始上色
+Open http://localhost:5173/ — you should see:
+1. The landing page
+2. After navigating to `/map`, the Philadelphia map loads
+3. After toggling "Flexibility Score" in the sidebar, streets begin to colorize
 
-### 5.1 健康检查清单
+### 5.1 Health-Check Cheatsheet
 
-| 现象 | 含义 | 排查 |
+| Symptom | Likely cause | Fix |
 |---|---|---|
-| 地图完全空白 | Mapbox token 错误或缺失 | 检查 `.env` 里 `VITE_MAPBOX_TOKEN`，重启 `npm run dev` |
-| 地图有底图但 POI 不出现 | Supabase URL/key 错误，或 RPC 函数未部署 | F12 看 Network → 找 supabase.co 的请求是 401 还是 404 |
-| Flexibility Score 全是灰色 | POI 加载完了但 AI/POI 还没开始算 | 等 1-2 秒，或拉到 zoom ≥14 |
-| 详情面板缺街景图 | Google SV key 缺失或错误 | 检查 `VITE_GOOGLE_SV_KEY`（可选） |
-| 控制台报 `Missing Supabase env vars` | `.env` 没生效 | 确认文件名是 `.env` 不是 `env.txt`，重启 dev server |
+| Map is completely blank | Mapbox token wrong or missing | Check `VITE_MAPBOX_TOKEN` in `.env`, restart `npm run dev` |
+| Map base loads but no POIs appear | Wrong Supabase URL/key, or RPC functions not deployed | F12 → Network → look for supabase.co requests; 401 = wrong key, 404 = RPC missing |
+| Flexibility Score stays gray | POIs loaded but scoring still computing | Wait 1-2 seconds, or zoom in to ≥14 |
+| Detail panel missing street-view image | Google SV key missing or wrong | Check `VITE_GOOGLE_SV_KEY` |
+| Console warns `Missing Supabase env vars` | `.env` not loaded | Confirm filename is `.env` not `env.txt`, restart dev server |
 
 ---
 
-## 6. 项目结构
+## 6. Project Structure
 
 ```
 flexible-street-platform/
-├── .github/workflows/deploy.yml    # GitHub Actions 自动部署到 Pages
-├── public/                          # 静态资源（不经构建直接拷贝到 dist）
-├── src/                             # 所有源码
-│   ├── components/                  # React 组件
-│   ├── pages/                       # 页面级组件（路由入口）
-│   ├── lib/                         # 业务逻辑、算法、API 封装
-│   ├── data/                        # 静态配置数据
-│   ├── types/                       # 共享 TS 类型
-│   ├── App.tsx                      # 根组件 + 路由
-│   ├── main.tsx                     # React 入口
-│   └── index.css                    # Tailwind 引入 + 全局样式
-├── reports/                         # 项目结项报告（PDF/HTML）
-├── .env.example                     # 环境变量模板（仓库内）
-├── .env                             # 真实环境变量（git 忽略，本地手建）
+├── .github/workflows/deploy.yml    # GitHub Actions auto-deploy to Pages
+├── public/                          # Static assets (copied to dist as-is, no build)
+├── src/                             # All source code
+│   ├── components/                  # React components
+│   ├── pages/                       # Page-level components (route entries)
+│   ├── lib/                         # Business logic, algorithms, API wrappers
+│   ├── data/                        # Static config data
+│   ├── types/                       # Shared TypeScript types
+│   ├── App.tsx                      # Root component + router
+│   ├── main.tsx                     # React entry point
+│   └── index.css                    # Tailwind import + global styles
+├── reports/                         # Project final report (PDF/HTML)
+├── .env.example                     # Env-var template (in repo)
+├── .env                             # Real env vars (git-ignored, create locally)
 ├── .gitignore
-├── index.html                       # Vite 入口 HTML
+├── index.html                       # Vite HTML entry
 ├── package.json
 ├── tsconfig*.json
 ├── tailwind.config.js
 ├── vite.config.ts
-├── DEPLOYMENT.md                    # 多平台部署细节（Vercel/Netlify/Docker）
-└── README.md                        # 本文档
+├── DEPLOYMENT.md                    # Multi-platform deploy details (Vercel/Netlify/Docker)
+├── README.md                        # This document (English)
+└── README.zh.md                     # Chinese version
 ```
 
-### 6.1 `src/components/` — UI 组件
+### 6.1 `src/components/` — UI components
 
-| 文件 | 作用 |
+| File | Purpose |
 |---|---|
-| `MapComponent.tsx` | **核心组件**。Mapbox 地图初始化、所有图层管理（街道分数、POI、活动、簇群、紧急 veto）、RPC 数据加载、点击/悬浮交互。约 1300 行，最复杂 |
-| `Sidebar.tsx` | 左侧栏：时段选择、场景过滤、各类图层 toggle |
-| `MapLegend.tsx` | 右下图例：分数色阶、所有权颜色、紧急约束等 |
-| `StreetScorePanel.tsx` | 点击街道弹出的详情面板：分数、子分数、AI 视觉、修正因子、紧急 veto 横幅、簇群徽章。可拖拽 |
-| `StreetEventPanel.tsx` | Open Streets 事件详情面板（含街景图） |
-| `AnchorDetailPanel.tsx` | POI 锚点详情面板 |
+| `MapComponent.tsx` | **Core component**. Mapbox map init, all layer management (street scores, POIs, events, clusters, emergency veto), RPC data loading, click/hover interactions. ~1300 lines, the most complex file |
+| `Sidebar.tsx` | Left panel: time selector, scenario filters, layer toggles |
+| `MapLegend.tsx` | Bottom-right legend: score color scale, ownership colors, emergency constraints, etc. |
+| `StreetScorePanel.tsx` | Detail panel triggered by clicking a street: scores, sub-scores, AI vibe, modifiers, emergency veto banner, cluster badge. Draggable |
+| `StreetEventPanel.tsx` | Open Streets event detail panel (with street-view image) |
+| `AnchorDetailPanel.tsx` | POI anchor detail panel |
 
-### 6.2 `src/pages/` — 路由页面
+### 6.2 `src/pages/` — Routed pages
 
-| 文件 | 作用 |
+| File | Purpose |
 |---|---|
-| `LandingPage.tsx` | 首页 `/` |
-| `MapPage.tsx` | 主地图页 `/map`。负责调用 Supabase 加载 POI、AI 分数、Playstreets、活动；天气/节日数据获取；把 props 传给 MapComponent |
-| `Dashboard.tsx` | 数据看板 `/dashboard` |
+| `LandingPage.tsx` | Home `/` |
+| `MapPage.tsx` | Main map page `/map`. Calls Supabase to load POIs, AI scores, Playstreets, events; fetches weather/holiday data; passes props to MapComponent |
+| `Dashboard.tsx` | Stats dashboard `/dashboard` |
 
-### 6.3 `src/lib/` — 业务逻辑（纯函数为主）
+### 6.3 `src/lib/` — Business logic (mostly pure functions)
 
-| 文件 | 作用 |
+| File | Purpose |
 |---|---|
-| **`fsiScores.ts`** | **算法核心**。POI 走廊距离衰减、sigmoid 饱和评分、综合分计算、所有权分级、交通修正、紧急通道 veto、簇群检测（union-find）。约 700 行 |
-| `fsiCalibrate.ts` | 用 Playstreets 验证集反向拟合饱和参数的工具，浏览器控制台可调用 |
-| `streetScores.ts` | LLaVA AI 分数从 Supabase 分页加载并构建查找索引 |
-| `events.ts` | Ticketmaster API + 费城本地节日日历 + 计算事件邻近修正 |
-| `weather.ts` | Open-Meteo API 拉取实时/预报天气，映射到 0.2-1.0 修正系数 |
-| `supabase.ts` | Supabase 客户端单例（检查 env、初始化） |
+| **`fsiScores.ts`** | **Algorithm core**. POI corridor distance decay, sigmoid-saturated scoring, composite calculation, ownership tiering, traffic modifier, emergency veto, cluster detection (union-find). ~700 lines |
+| `fsiCalibrate.ts` | Tools to back-fit saturation parameters against the Playstreets validation set, callable from the browser console |
+| `streetScores.ts` | Loads LLaVA AI scores from Supabase paginated and builds lookup index |
+| `events.ts` | Ticketmaster API + Philadelphia local holiday calendar + event-proximity modifier calculation |
+| `weather.ts` | Open-Meteo API live/forecast weather, mapped to a 0.2-1.0 multiplier |
+| `supabase.ts` | Supabase client singleton (env check, init) |
 
-### 6.4 `src/data/` 与 `src/types/`
+### 6.4 `src/data/` and `src/types/`
 
-- `data/mockData.ts` — 场景定义（school dismissal、weekend market 等 6 个）、试点区域 bbox、时段 bin
-- `types/index.ts` — 跨文件共享 interface（Anchor、Scenario、StreetScore 等）
+- `data/mockData.ts` — Scenario definitions (school dismissal, weekend market, etc., 6 in total), pilot-zone bboxes, time bins
+- `types/index.ts` — Shared interfaces across files (Anchor, Scenario, StreetScore, etc.)
 
-### 6.5 关键数据流图
+### 6.5 Key Data Flow
 
 ```
-用户打开 /map
+User opens /map
   ↓
-MapPage 加载初始数据：
-  ├─ Supabase RPC: get_poi_in_bounds (整个费城)
-  ├─ Supabase 分页: street_ai_scores
+MapPage loads initial data:
+  ├─ Supabase RPC: get_poi_in_bounds (entire Philadelphia)
+  ├─ Supabase pagination: street_ai_scores
   ├─ Supabase RPC: get_playstreets_lines_in_bounds
   ├─ Supabase RPC: get_street_events_in_bounds
-  ├─ Open-Meteo API: 当下天气
-  └─ Ticketmaster API: 季节性活动
+  ├─ Open-Meteo API: current weather
+  └─ Ticketmaster API: seasonal events
   ↓
-传 props 给 MapComponent
+Passes props to MapComponent
   ↓
-Mapbox 渲染：街道矢量瓦片 + POI 圆点 + 事件层
+Mapbox renders: street vector tiles + POI dots + event layer
   ↓
-用户开启 "Flexibility Score" 开关
+User toggles "Flexibility Score" on
   ↓
-MapComponent.applyScores() 触发：
-  对视口内每条街道：
-    ├─ computePoiFSI(coords, pois) → commercial / community / mobility 子分
-    ├─ getEmergencyVeto(coords, pois) → 紧急通道判断
-    ├─ getTrafficModifier / getEventModifier / weather / holiday → 修正因子
-    └─ computeCompositeTotal(...) → 最终 0-100 综合分
-  写入 Mapbox feature-state 触发图层重绘
+MapComponent.applyScores() fires:
+  For each street in viewport:
+    ├─ computePoiFSI(coords, pois) → commercial / community / mobility sub-scores
+    ├─ getEmergencyVeto(coords, pois) → emergency-access check
+    ├─ getTrafficModifier / getEventModifier / weather / holiday → modifiers
+    └─ computeCompositeTotal(...) → final 0-100 composite score
+  Writes to Mapbox feature-state, triggering layer redraw
   ↓
-applyClusters() 后处理：
-  对所有 ≥75 分 + 可关闭 + 未否决的街道：
-    findClusters(...) → 共享路口的并查集
-    ≥3 条相连 → 写入 clusterSize feature-state
-  触发青色簇群光晕图层
+applyClusters() post-pass:
+  For all streets with score ≥75 + closeable + not vetoed:
+    findClusters(...) → union-find on shared intersections
+    ≥3 connected → write clusterSize to feature-state
+  Triggers cyan cluster-halo layer
 ```
 
 ---
 
-## 7. 构建与部署
+## 7. Build & Deploy
 
-### 7.1 本地构建
+### 7.1 Local build
 
 ```bash
 npm run build
 ```
 
-执行 `tsc -b && vite build`，先做 TypeScript 类型检查，再用 Vite 打包到 `dist/`。
+Runs `tsc -b && vite build` — first a TypeScript type-check, then a Vite production bundle into `dist/`.
 
-构建产物 ~2.2MB JS（gzip 后 ~620KB），单文件 bundle。可直接静态托管，**不需要 Node 服务**。
+Output is ~2.2 MB of JS (~620 KB gzipped) as a single bundle. Can be hosted as static files — **no Node server required**.
 
-### 7.2 自动部署（推荐）
+### 7.2 Auto-deploy (recommended)
 
-仓库已配 GitHub Actions ([deploy.yml](.github/workflows/deploy.yml))：
+The repo has GitHub Actions configured ([deploy.yml](.github/workflows/deploy.yml)):
 
 ```
-push 到 main 分支
+push to main branch
   ↓
-GitHub Actions 触发
+GitHub Actions triggered
   ↓
-checkout → 装 Node 18 → npm install
+checkout → install Node 18 → npm install
   ↓
-npm run build （注入 4 个 secret 作为环境变量）
+npm run build (with 4 secrets injected as env vars)
   ↓
-上传 dist/ 到 GitHub Pages 制品 → deploy
+upload dist/ as GitHub Pages artifact → deploy
 ```
 
-**前提：** 仓库 Settings → Pages 已启用 GitHub Pages（source 选 GitHub Actions），并配好 §3.4 的 4 个 secret。
+**Prerequisites:** GitHub Pages enabled in repo Settings → Pages (source: GitHub Actions), and the 4 secrets from §3.4 configured.
 
-### 7.3 其它部署平台
+### 7.3 Other deployment platforms
 
-[DEPLOYMENT.md](DEPLOYMENT.md) 涵盖 Vercel / Netlify / Docker / 自托管 Nginx。
+[DEPLOYMENT.md](DEPLOYMENT.md) covers Vercel / Netlify / Docker / self-hosted Nginx.
 
-唯一要注意：**所有平台都要在控制台单独配 5 个 `VITE_*` 环境变量**，不能依赖 `.env` 文件（构建时才读）。
+The only thing to remember: **on every platform, configure all 5 `VITE_*` env vars in the platform's dashboard** — you cannot rely on `.env` files (those are only read at build time).
 
 ---
 
-## 8. 常见问题排查
+## 8. Troubleshooting
 
-### 8.1 `npm install` 卡住
+### 8.1 `npm install` hangs
 
-通常是网络问题：
+Usually a network issue — retry, switch to a different npm registry mirror, or check your proxy. A clean reinstall often helps:
 ```bash
-npm config set registry https://registry.npmmirror.com
 rm -rf node_modules package-lock.json
 npm install
 ```
 
-### 8.2 TypeScript 报 `Cannot find module ...`
+### 8.2 TypeScript reports `Cannot find module ...`
 
-VS Code 右下角语言指示器 → "Use Workspace Version"，让 IDE 用项目自带的 TS。
+In VS Code, click the language indicator at the bottom-right → "Use Workspace Version" so the IDE uses the project's bundled TypeScript.
 
-### 8.3 地图加载几秒后页面崩溃
+### 8.3 Map crashes a few seconds after loading
 
-多半是 Mapbox token 过期或被吊销。去 https://account.mapbox.com/access-tokens/ 检查。
+Most likely the Mapbox token has expired or been revoked. Check at https://account.mapbox.com/access-tokens/.
 
-### 8.4 街道分数图层始终是灰的
+### 8.4 Street-score layer stays gray forever
 
-按顺序排查：
-1. 控制台是否有 `Missing Supabase env vars` 警告？→ 检查 `.env`
-2. Network 面板里 supabase.co 的 RPC 请求返回什么？401 = key 错；404 = RPC 函数不存在；500 = SQL 报错
-3. 拉到 zoom ≥ 14（街道图层在低 zoom 不显示）
+Check in this order:
+1. Console showing `Missing Supabase env vars`? → check `.env`
+2. In Network tab, what do supabase.co RPC requests return? 401 = wrong key, 404 = RPC function does not exist, 500 = SQL error
+3. Zoom in to ≥14 (street layer is hidden at low zoom)
 
-### 8.5 GitHub Actions 部署失败
+### 8.5 GitHub Actions deployment fails
 
-最常见是缺 secret。日志里会看到 `VITE_MAPBOX_TOKEN is not defined`。补全后 re-run workflow。
+Most often missing a secret. Logs will say `VITE_MAPBOX_TOKEN is not defined`. After adding it, re-run the workflow.
 
-### 8.6 部署后线上加载慢
+### 8.6 Production loads slowly
 
-GitHub Pages 在国内不稳定。考虑迁移到 Vercel（全球 CDN，对国内更友好）。
-
----
-
-## 9. 后续开发常用模式
-
-### 9.1 加一个新的实时调节因子
-
-例如要加"空气质量"修正：
-
-1. 在 [src/lib/](src/lib/) 新建 `airquality.ts`，写 `fetchAirQuality()` 和 `getAirQualityModifier()`
-2. 在 [MapPage.tsx](src/pages/MapPage.tsx) 加载后传给 MapComponent
-3. 在 [fsiScores.ts](src/lib/fsiScores.ts) 的 `computeCompositeTotal()` 函数签名加 `airMod` 参数
-4. 在 [MapComponent.tsx](src/components/MapComponent.tsx) `applyScores()` 调用处传入
-5. 在 [StreetScorePanel.tsx](src/components/StreetScorePanel.tsx) 的因子列表加一项
-
-### 9.2 加一个新的地图叠加层
-
-参考现有 `street-veto-blocked` 或 `street-cluster-outline` 层：
-1. 在 MapComponent 的图层初始化区添加 `map.current.addLayer({...})`
-2. 在 visibility toggle 区把新 id 加入 layer ID 数组
-3. 在 closeable-only 过滤区也加 setFilter 调用
-4. 如需用 feature-state 驱动样式，定义对应的 `['feature-state', 'xxx']` 表达式常量
-
-### 9.3 修改评分参数
-
-直接编辑 [src/lib/fsiScores.ts](src/lib/fsiScores.ts) 顶部的常量：
-- `CORRIDOR_WIDTH_M` — 各维度走廊宽度
-- `DECAY_PERP_M` — 距离衰减系数
-- `SATURATION` — sigmoid 饱和参数
-- `PROMINENCE_BONUS` — 邻域突出度奖励上限
-
-修改后建议在浏览器控制台跑 `logCalibration()` 验证 Playstreets 正例是否仍能落在 ≥75 分区间。
-
-### 9.4 修改 Supabase RPC
-
-不要改 RPC 函数签名——前端代码硬编码了参数名。如要改：
-1. 先在 Supabase SQL Editor 重写 RPC
-2. 同步更新 [MapComponent.tsx](src/components/MapComponent.tsx)、[MapPage.tsx](src/pages/MapPage.tsx) 对应的 `supabase.rpc(...)` 调用
+GitHub Pages CDN performance varies by region. If latency matters for your users, host on Vercel or Netlify for a more global CDN footprint.
 
 ---
 
-## 10. 项目报告与延伸阅读
+## 9. Common Development Patterns
 
-| 资源 | 说明 |
+### 9.1 Add a new live modifier
+
+E.g., to add an "air quality" modifier:
+
+1. In [src/lib/](src/lib/), create `airquality.ts` with `fetchAirQuality()` and `getAirQualityModifier()`
+2. In [MapPage.tsx](src/pages/MapPage.tsx), load it and pass to MapComponent
+3. In [fsiScores.ts](src/lib/fsiScores.ts), add an `airMod` parameter to `computeCompositeTotal()`
+4. In [MapComponent.tsx](src/components/MapComponent.tsx), pass it to `applyScores()`'s call site
+5. In [StreetScorePanel.tsx](src/components/StreetScorePanel.tsx), add it to the factor list
+
+### 9.2 Add a new map overlay layer
+
+Reference the existing `street-veto-blocked` or `street-cluster-outline` layer:
+1. Add `map.current.addLayer({...})` in MapComponent's layer init section
+2. Add the new layer ID to the visibility-toggle array
+3. Add a `setFilter` call in the closeable-only filter section
+4. If feature-state-driven styling is needed, define the corresponding `['feature-state', 'xxx']` expression constant
+
+### 9.3 Tweak scoring parameters
+
+Edit the constants at the top of [src/lib/fsiScores.ts](src/lib/fsiScores.ts):
+- `CORRIDOR_WIDTH_M` — corridor width per dimension
+- `DECAY_PERP_M` — distance decay coefficient
+- `SATURATION` — sigmoid saturation parameter
+- `PROMINENCE_BONUS` — neighborhood prominence bonus cap
+
+After tweaking, run `logCalibration()` in the browser console to verify Playstreets positives still land in the ≥75 range.
+
+### 9.4 Modify a Supabase RPC
+
+Do **not** change RPC function signatures — the frontend hardcodes the parameter names. If you must:
+1. Rewrite the RPC in Supabase SQL Editor first
+2. Update corresponding `supabase.rpc(...)` calls in [MapComponent.tsx](src/components/MapComponent.tsx) and [MapPage.tsx](src/pages/MapPage.tsx) accordingly
+
+---
+
+## 10. Reports & Further Reading
+
+| Resource | Description |
 |---|---|
-| [reports/final-report.pdf](reports/final-report.pdf) | **项目结项详细报告（中文）**——背景、目的、方法、结论与未来工作展望 |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | 多平台部署细节（Vercel/Netlify/Docker） |
-| [Mapbox GL JS 文档](https://docs.mapbox.com/mapbox-gl-js/api/) | 地图引擎 API |
-| [Supabase 文档](https://supabase.com/docs) | 后端 |
-| [Vite 文档](https://vitejs.dev/) | 构建工具 |
+| [reports/final-report.pdf](reports/final-report.pdf) | **Project final report (Chinese)** — background, purpose, methods, conclusions, future work |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Multi-platform deploy details (Vercel/Netlify/Docker) |
+| [Mapbox GL JS docs](https://docs.mapbox.com/mapbox-gl-js/api/) | Map engine API |
+| [Supabase docs](https://supabase.com/docs) | Backend |
+| [Vite docs](https://vitejs.dev/) | Build tool |
 
 ---
 
-## 11. 部署后自检清单
+## 11. Post-Deployment Checklist
 
-跟着前面的章节走完后，按以下清单确认所有部署步骤都到位：
+After working through the previous sections, use this checklist to confirm everything is in place:
 
-**API key 准备**
-- [ ] Mapbox token 已在 https://account.mapbox.com 申请
-- [ ] Google Street View Static API 已启用并拿到 key（可选）
-- [ ] Ticketmaster developer 账号已注册（可选）
+**API key preparation**
+- [ ] Mapbox token obtained from https://account.mapbox.com
+- [ ] Google Street View Static API enabled and key obtained
+- [ ] Ticketmaster developer account registered and key obtained
 
-**Supabase 后端**
-- [ ] 自己的 Supabase 项目已创建
-- [ ] `CREATE EXTENSION postgis` 已执行
-- [ ] `flexible-street-backup.sql` 已 import，无报错
-- [ ] Project URL 与 anon key 已复制出来
+**Supabase backend**
+- [ ] Your own Supabase project created
+- [ ] `CREATE EXTENSION postgis` executed
+- [ ] `flexible-street-backup.sql` imported without errors
+- [ ] Project URL and anon key copied
 
-**本地配置**
-- [ ] `.env` 文件已建好，5 个变量都已填入
-- [ ] `npm install` 成功
-- [ ] `npm run dev` 能正常启动 dev server
+**Local config**
+- [ ] `.env` file created with all 5 variables filled in
+- [ ] `npm install` succeeded
+- [ ] `npm run dev` starts the dev server normally
 
-**功能验证**
-- [ ] 浏览器打开 http://localhost:5173 能看到首页
-- [ ] 进入 `/map` 后费城地图正常加载
-- [ ] 打开侧栏 "Flexibility Score" 后街道开始上色
-- [ ] 点击街道能弹出详情面板
-- [ ] 详情面板能看到 commercial / community 子分数
-- [ ] 部分街道能看到紧急通道 veto（粉红色）
-- [ ] 部分街道能看到簇群光晕（青色）
+**Functional verification**
+- [ ] Browser at http://localhost:5173 shows the landing page
+- [ ] Navigating to `/map` loads the Philadelphia map
+- [ ] Toggling "Flexibility Score" colors the streets
+- [ ] Clicking a street opens the detail panel
+- [ ] Detail panel shows commercial / community sub-scores
+- [ ] Some streets show emergency-access veto (magenta)
+- [ ] Some streets show closure-cluster halo (cyan)
 
-**生产构建**
-- [ ] `npm run build` 成功，`dist/` 目录正常生成
+**Production build**
+- [ ] `npm run build` succeeds and `dist/` is generated
 
-**（可选）GitHub Pages 自动部署**
-- [ ] GitHub repo Settings → Pages 已启用 "GitHub Actions" 作为 source
-- [ ] Settings → Secrets 里 4 个 secret 都已配好
+**GitHub Pages auto-deploy (if used)**
+- [ ] GitHub repo Settings → Pages: source set to "GitHub Actions"
+- [ ] Settings → Secrets: all required keys configured
 
-**理解项目**
-- [ ] 已浏览 [reports/final-report.pdf](reports/final-report.pdf) 了解背景与设计思路
-- [ ] 已读 [src/lib/fsiScores.ts](src/lib/fsiScores.ts) 头部注释理解 FSI 算法
+**Project understanding**
+- [ ] Skimmed [reports/final-report.pdf](reports/final-report.pdf) for background and design rationale
+- [ ] Read the header comment of [src/lib/fsiScores.ts](src/lib/fsiScores.ts) to understand the FSI algorithm
 
 ---
 
