@@ -826,17 +826,17 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
         eduBreakdown,
       );
 
-      // 叠加 AI 感官数据（如果有）— name > objectid
+      // Overlay AI sensory data if present — name lookup beats objectid lookup
       const ai = aiNameIndexRef.current.get((props.stname ?? '').toUpperCase().trim())
               ?? aiCacheRef.current.get(objectId);
 
-      // 交通 + 天气 + 活动 + 节日修正 — anchored to the SAME point applyScores used.
+      // Traffic + weather + events + holiday modifiers — anchored to the SAME point applyScores used.
       const tMod  = getTrafficModifier(props.stname, props.responsibl, selectedTimeBinRef.current);
       const wMod  = weatherDataRef.current?.modifier ?? 1.0;
       const { mod: eMod } = getEventModifier(fsiLat, fsiLng, phillyEventsRef.current);
       const hMod  = holidayInfoRef.current?.modifier ?? 1.0;
 
-      // 综合 FSI
+      // Composite FSI
       scores.total = computeCompositeTotal(scores.total, ai?.aiScore, tMod, wMod, eMod, hMod);
       const color  = getScoreColor(scores.total);
 
@@ -953,7 +953,7 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
         scores.lng        = ai.lng ?? scores.lng;
       }
 
-      // 交通 + 天气 + 活动 + 节日修正 — anchored to the SAME point applyScores used.
+      // Traffic + weather + events + holiday modifiers — anchored to the SAME point applyScores used.
       const tMod = getTrafficModifier(props.stname, props.responsibl, selectedTimeBinRef.current);
       const wMod = weatherDataRef.current?.modifier ?? 1.0;
       const { mod: eMod, label: eLabel } = getEventModifier(fsiLat, fsiLng, phillyEventsRef.current);
@@ -975,7 +975,7 @@ export const MapComponent = forwardRef<MapHandle, MapComponentProps>(({
         scores.holidayIcon  = holiday?.icon;
       }
 
-      // 综合 FSI
+      // Composite FSI
       scores.total = computeCompositeTotal(scores.total, scores.aiScore, tMod, wMod, eMod, hMod);
 
       // Pull emergency veto + cluster info from feature-state if applyScores

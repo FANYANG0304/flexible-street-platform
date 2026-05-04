@@ -23,7 +23,7 @@
 7. [Build & Deploy](#7-build--deploy)
 8. [Troubleshooting](#8-troubleshooting)
 9. [Common Development Patterns](#9-common-development-patterns)
-10. [Reports & Further Reading](#10-reports--further-reading)
+10. [Further Reading](#10-further-reading)
 11. [Post-Deployment Checklist](#11-post-deployment-checklist)
 
 ---
@@ -72,8 +72,6 @@ In addition, three **independent constraint layers** (which do *not* alter the s
 | Network topology / detour-cost analysis | 🔮 Future work |
 | One-way street awareness | 🔮 Future work |
 
-For detailed design reflections and future plans, see [reports/final-report.pdf](reports/final-report.pdf).
-
 ---
 
 ## 2. Quick Start
@@ -100,10 +98,23 @@ npm install
 
 ### 2.3 Configure environment variables (see §3)
 
+Copy the template, then fill in your own keys:
+
 ```bash
 cp .env.example .env
-# Open .env and fill in the 5 keys.
 ```
+
+Open `.env` in any editor — each line is `KEY=value`, no quotes needed. It should look like this once filled:
+
+```env
+VITE_MAPBOX_TOKEN=pk.eyJ1IjoieW91ci11c2VyIiwiYSI6...
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIs...
+VITE_GOOGLE_SV_KEY=AIzaSy...
+VITE_TICKETMASTER_KEY=AbCd1234...
+```
+
+Where to obtain each key — see §3.1.
 
 ### 2.4 Start dev server
 
@@ -241,7 +252,6 @@ flexible-street-platform/
 │   ├── App.tsx                      # Root component + router
 │   ├── main.tsx                     # React entry point
 │   └── index.css                    # Tailwind import + global styles
-├── reports/                         # Project final report (PDF/HTML)
 ├── .env.example                     # Env-var template (in repo)
 ├── .env                             # Real env vars (git-ignored, create locally)
 ├── .gitignore
@@ -437,11 +447,10 @@ Do **not** change RPC function signatures — the frontend hardcodes the paramet
 
 ---
 
-## 10. Reports & Further Reading
+## 10. Further Reading
 
 | Resource | Description |
 |---|---|
-| [reports/final-report.pdf](reports/final-report.pdf) | **Project final report (Chinese)** — background, purpose, methods, conclusions, future work |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Multi-platform deploy details (Vercel/Netlify/Docker) |
 | [Mapbox GL JS docs](https://docs.mapbox.com/mapbox-gl-js/api/) | Map engine API |
 | [Supabase docs](https://supabase.com/docs) | Backend |
@@ -486,7 +495,6 @@ After working through the previous sections, use this checklist to confirm every
 - [ ] Settings → Secrets: all required keys configured
 
 **Project understanding**
-- [ ] Skimmed [reports/final-report.pdf](reports/final-report.pdf) for background and design rationale
 - [ ] Read the header comment of [src/lib/fsiScores.ts](src/lib/fsiScores.ts) to understand the FSI algorithm
 
 ---

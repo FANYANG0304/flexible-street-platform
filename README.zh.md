@@ -23,7 +23,7 @@
 7. [构建与部署](#7-构建与部署)
 8. [常见问题排查](#8-常见问题排查)
 9. [后续开发常用模式](#9-后续开发常用模式)
-10. [项目报告与延伸阅读](#10-项目报告与延伸阅读)
+10. [延伸阅读](#10-延伸阅读)
 11. [部署后自检清单](#11-部署后自检清单)
 
 ---
@@ -71,8 +71,6 @@
 | 路网拓扑 / 绕行成本分析 | 🔮 未来工作 |
 | 单行道识别 | 🔮 未来工作 |
 
-详细的设计反思和未来规划，见 [reports/final-report.pdf](reports/final-report.pdf)。
-
 ---
 
 ## 2. 快速开始
@@ -99,10 +97,23 @@ npm install
 
 ### 2.3 配环境变量（详见 §3）
 
+复制一份模板，再把自己的 key 填进去：
+
 ```bash
 cp .env.example .env
-# 打开 .env 把 5 个 key 填进去
 ```
+
+用任意编辑器打开 `.env`——每行格式是 `KEY=value`，不需要加引号。填好之后大概长这样：
+
+```env
+VITE_MAPBOX_TOKEN=pk.eyJ1IjoieW91ci11c2VyIiwiYSI6...
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIs...
+VITE_GOOGLE_SV_KEY=AIzaSy...
+VITE_TICKETMASTER_KEY=AbCd1234...
+```
+
+每个 key 去哪里申请——见 §3.1。
 
 ### 2.4 启动
 
@@ -240,7 +251,6 @@ flexible-street-platform/
 │   ├── App.tsx                      # 根组件 + 路由
 │   ├── main.tsx                     # React 入口
 │   └── index.css                    # Tailwind 引入 + 全局样式
-├── reports/                         # 项目结项报告（PDF/HTML）
 ├── .env.example                     # 环境变量模板（仓库内）
 ├── .env                             # 真实环境变量（git 忽略，本地手建）
 ├── .gitignore
@@ -436,11 +446,10 @@ GitHub Pages 的 CDN 在不同地区表现差别较大。如果对延迟敏感�
 
 ---
 
-## 10. 项目报告与延伸阅读
+## 10. 延伸阅读
 
 | 资源 | 说明 |
 |---|---|
-| [reports/final-report.pdf](reports/final-report.pdf) | **项目结项详细报告（中文）**——背景、目的、方法、结论与未来工作展望 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 多平台部署细节（Vercel/Netlify/Docker） |
 | [Mapbox GL JS 文档](https://docs.mapbox.com/mapbox-gl-js/api/) | 地图引擎 API |
 | [Supabase 文档](https://supabase.com/docs) | 后端 |
@@ -485,7 +494,6 @@ GitHub Pages 的 CDN 在不同地区表现差别较大。如果对延迟敏感�
 - [ ] Settings → Secrets 里所需的 key 都已配好
 
 **理解项目**
-- [ ] 已浏览 [reports/final-report.pdf](reports/final-report.pdf) 了解背景与设计思路
 - [ ] 已读 [src/lib/fsiScores.ts](src/lib/fsiScores.ts) 头部注释理解 FSI 算法
 
 ---
